@@ -6,6 +6,7 @@ import networkx as nx
 from pathlib import Path
 import matplotlib.pyplot as plt
 import os
+from tqdm import tqdm
 
 OUTPUT_DIR = "../results/task01/"
 
@@ -106,6 +107,42 @@ def plot_degree_distribution(dok, title):
     print(f"Saved degree distribution plot for {title}.")
 
 
+def plot_clustering_distribution(dok, title):
+    # Build a NetworkX graph from dok
+    G = nx.Graph()
+    for node, neighbors in dok.items():
+        for neighbor in neighbors:
+            G.add_edge(node, neighbor)
+    # Compute clustering coefficients for all nodes at once (much faster)
+    print(f"Calculating clustering coefficients for {title}...")
+    clustering = nx.clustering(G)
+    # Group clustering coefficients by degree
+    degree_to_cc = {}
+    for node in G.nodes():
+        deg = G.degree(node)
+        cc = clustering[node]
+        if deg not in degree_to_cc:
+            degree_to_cc[deg] = []
+        degree_to_cc[deg].append(cc)
+    # Compute average clustering coefficient for each degree
+    degrees = []
+    avg_ccs = []
+    for deg in sorted(degree_to_cc):
+        if deg > 0:
+            degrees.append(deg)
+            avg_ccs.append(sum(degree_to_cc[deg]) / len(degree_to_cc[deg]))
+    plt.figure()
+    plt.loglog(degrees, avg_ccs, marker="o", linestyle="None")
+    plt.title(f"Degree vs. Clustering Coefficient: {title}")
+    plt.xlabel("Degree")
+    plt.ylabel("Average Clustering Coefficient")
+    plt.grid(True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    plt.savefig(f"{OUTPUT_DIR}degree_vs_clustering_{title.lower()}.png")
+    plt.close()
+    print(f"Saved degree vs. clustering coefficient plot for {title}.")
+
+
 def main():
     # youtube
     youtube_data = load_data("../data/com-youtube.ungraph.txt")
@@ -193,7 +230,11 @@ def main():
     plot_degree_distribution(facebook_dok, "Facebook")
     plot_degree_distribution(protein_dok, "Protein")
 
+    # clustering coefficient distribution (log-log plot)
+    plot_clustering_distribution(youtube_dok, "YouTube")
+    plot_clustering_distribution(facebook_dok, "Facebook")
+    plot_clustering_distribution(protein_dok, "Protein")
+
 
 if __name__ == "__main__":
-    main()
     main()
