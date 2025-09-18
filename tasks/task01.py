@@ -1,5 +1,13 @@
+import matplotlib
+
+matplotlib.use("Agg")
+
 import networkx as nx
 from pathlib import Path
+import matplotlib.pyplot as plt
+import os
+
+OUTPUT_DIR = "../results/task01/"
 
 
 def load_data(input_path):
@@ -75,6 +83,27 @@ def calculate_max_degree(dok):
         if degree > max_degree:
             max_degree = degree
     return max_degree
+
+
+def plot_degree_distribution(dok, title):
+    degree_count = {}
+    for node in dok:
+        degree = len(dok[node])
+        degree_count[degree] = degree_count.get(degree, 0) + 1
+
+    degrees = list(degree_count.keys())
+    counts = list(degree_count.values())
+
+    plt.figure()
+    plt.loglog(degrees, counts, marker="o", linestyle="None")
+    plt.title(f"Degree Distribution: {title}")
+    plt.xlabel("Degree")
+    plt.ylabel("Frequency")
+    plt.grid(True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    plt.savefig(f"{OUTPUT_DIR}degree_distribution_{title.lower()}.png")
+    plt.close()
+    print(f"Saved degree distribution plot for {title}.")
 
 
 def main():
@@ -159,6 +188,12 @@ def main():
         f"Protein NetworkX max degree: {max(dict(protein_graph.degree()).values())}\n"
     )
 
+    # degree distribution (log-log plot)
+    plot_degree_distribution(youtube_dok, "YouTube")
+    plot_degree_distribution(facebook_dok, "Facebook")
+    plot_degree_distribution(protein_dok, "Protein")
+
 
 if __name__ == "__main__":
+    main()
     main()
