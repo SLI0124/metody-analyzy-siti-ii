@@ -2,11 +2,11 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import networkx as nx
+import numpy as np
+import csv
 from pathlib import Path
 import matplotlib.pyplot as plt
 import os
-from tqdm import tqdm
 
 OUTPUT_DIR = "../results/task01/"
 
@@ -70,33 +70,66 @@ def create_dictionary_of_keys(lines):
 
 
 def calculate_average_degree(dok):
-    average_degree = 0
-    for node in dok:
-        average_degree += len(dok[node])
-    average_degree /= len(dok)
-    return average_degree
+    degrees = np.fromiter((len(neigh) for neigh in dok.values()), dtype=int)
+    return degrees.mean()
 
 
 def calculate_max_degree(dok):
-    max_degree = 0
-    for node in dok:
-        degree = len(dok[node])
-        if degree > max_degree:
-            max_degree = degree
-    return max_degree
+    degrees = np.fromiter((len(neigh) for neigh in dok.values()), dtype=int)
+    return degrees.max()
 
 
-def plot_degree_distribution(dok, title):
-    degree_count = {}
-    for node in dok:
-        degree = len(dok[node])
-        degree_count[degree] = degree_count.get(degree, 0) + 1
+def compute_node_attributes(dok, attr_csv_path):
+    attr_csv_path = Path(attr_csv_path)
+    node_attrs = {}
+    if attr_csv_path.exists():
+        with attr_csv_path.open("r", newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            next(reader)  # skip header
+            for row in reader:
+                node, degree, clustering = row
+                node_attrs[int(node)] = (int(degree), float(clustering))
+        print(f"Loaded node attributes from {attr_csv_path}")
+        return node_attrs
 
-    degrees = list(degree_count.keys())
-    counts = list(degree_count.values())
+    # Ensure output directory exists before writing
+    attr_csv_path.parent.mkdir(parents=True, exist_ok=True)
 
+    nodes = list(dok.keys())
+    degrees = np.array([len(dok[node]) for node in nodes])
+    clustering = np.zeros(len(nodes), dtype=float)
+    node_idx = {node: i for i, node in enumerate(nodes)}
+
+    for i, node in enumerate(nodes):
+        neighbors = list(dok[node].keys())
+        k = len(neighbors)
+        if k < 2:
+            clustering[i] = 0.0
+            continue
+        # Count edges between neighbors
+        links = 0
+        for idx1 in range(k):
+            for idx2 in range(idx1 + 1, k):
+                n1, n2 = neighbors[idx1], neighbors[idx2]
+                if n2 in dok[n1]:
+                    links += 1
+        clustering[i] = (2 * links) / (k * (k - 1))
+
+    with attr_csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["node", "degree", "clustering"])
+        for i, node in enumerate(nodes):
+            writer.writerow([node, degrees[i], clustering[i]])
+    print(f"Saved node attributes to {attr_csv_path}")
+    node_attrs = {node: (degrees[i], clustering[i]) for i, node in enumerate(nodes)}
+    return node_attrs
+
+
+def plot_degree_distribution_from_attrs(node_attrs, title):
+    degrees = np.array([deg for deg, _ in node_attrs.values()])
+    unique, counts = np.unique(degrees, return_counts=True)
     plt.figure()
-    plt.loglog(degrees, counts, marker="o", linestyle="None")
+    plt.loglog(unique, counts, marker="o", linestyle="None")
     plt.title(f"Degree Distribution: {title}")
     plt.xlabel("Degree")
     plt.ylabel("Frequency")
@@ -107,30 +140,16 @@ def plot_degree_distribution(dok, title):
     print(f"Saved degree distribution plot for {title}.")
 
 
-def plot_clustering_distribution(dok, title):
-    # Build a NetworkX graph from dok
-    G = nx.Graph()
-    for node, neighbors in dok.items():
-        for neighbor in neighbors:
-            G.add_edge(node, neighbor)
-    # Compute clustering coefficients for all nodes at once (much faster)
-    print(f"Calculating clustering coefficients for {title}...")
-    clustering = nx.clustering(G)
-    # Group clustering coefficients by degree
-    degree_to_cc = {}
-    for node in G.nodes():
-        deg = G.degree(node)
-        cc = clustering[node]
-        if deg not in degree_to_cc:
-            degree_to_cc[deg] = []
-        degree_to_cc[deg].append(cc)
-    # Compute average clustering coefficient for each degree
+def plot_clustering_distribution_from_attrs(node_attrs, title):
+    deg_to_cc = {}
+    for deg, cc in node_attrs.values():
+        if deg > 0:
+            deg_to_cc.setdefault(deg, []).append(cc)
     degrees = []
     avg_ccs = []
-    for deg in sorted(degree_to_cc):
-        if deg > 0:
-            degrees.append(deg)
-            avg_ccs.append(sum(degree_to_cc[deg]) / len(degree_to_cc[deg]))
+    for deg in sorted(deg_to_cc):
+        degrees.append(deg)
+        avg_ccs.append(np.mean(deg_to_cc[deg]))
     plt.figure()
     plt.loglog(degrees, avg_ccs, marker="o", linestyle="None")
     plt.title(f"Degree vs. Clustering Coefficient: {title}")
@@ -149,7 +168,10 @@ def main():
     print(f"Loaded {len(youtube_data)} lines of YouTube data.")
     youtube_dok = create_dictionary_of_keys(youtube_data)
     print(f"YouTube DOK has {len(youtube_dok)} keys.")
-    youtube_avg_degree = calculate_average_degree(youtube_dok)
+    youtube_attrs = compute_node_attributes(
+        youtube_dok, f"{OUTPUT_DIR}youtube_node_attrs.csv"
+    )
+    youtube_avg_degree = np.mean([deg for deg, _ in youtube_attrs.values()])
     print(f"Youtube average degree: {youtube_avg_degree}\n")
 
     # facebook
@@ -157,7 +179,10 @@ def main():
     print(f"Loaded {len(facebook_data)} lines of Facebook data.")
     facebook_dok = create_dictionary_of_keys(facebook_data)
     print(f"Facebook DOK has {len(facebook_dok)} keys.")
-    facebook_avg_degree = calculate_average_degree(facebook_dok)
+    facebook_attrs = compute_node_attributes(
+        facebook_dok, f"{OUTPUT_DIR}facebook_node_attrs.csv"
+    )
+    facebook_avg_degree = np.mean([deg for deg, _ in facebook_attrs.values()])
     print(f"Facebook average degree: {facebook_avg_degree}\n")
 
     # protein
@@ -167,73 +192,29 @@ def main():
     print(f"Protein data mapped to {len(protein_id_map)} unique proteins.")
     protein_dok = create_dictionary_of_keys(protein_edges)
     print(f"Protein DOK has {len(protein_dok)} keys.")
-    protein_avg_degree = calculate_average_degree(protein_dok)
+    protein_attrs = compute_node_attributes(
+        protein_dok, f"{OUTPUT_DIR}protein_node_attrs.csv"
+    )
+    protein_avg_degree = np.mean([deg for deg, _ in protein_attrs.values()])
     print(f"Protein average degree: {protein_avg_degree}\n")
 
     # max degree
-    # Youtube
-    youtube_max_degree = calculate_max_degree(youtube_dok)
+    youtube_max_degree = max(deg for deg, _ in youtube_attrs.values())
     print(f"Youtube max degree: {youtube_max_degree}")
-
-    # Facebook
-    facebook_max_degree = calculate_max_degree(facebook_dok)
+    facebook_max_degree = max(deg for deg, _ in facebook_attrs.values())
     print(f"Facebook max degree: {facebook_max_degree}")
-
-    # Protein
-    protein_max_degree = calculate_max_degree(protein_dok)
+    protein_max_degree = max(deg for deg, _ in protein_attrs.values())
     print(f"Protein max degree: {protein_max_degree}\n")
 
-    # networkx validation
-    # Youtube
-    print("Validating with NetworkX:")
-    youtube_graph = nx.Graph()
-    youtube_graph.add_edges_from(youtube_data)
-    print(
-        f"Youtube NetworkX has {youtube_graph.number_of_nodes()} nodes and {youtube_graph.number_of_edges()} edges."
-    )
-    print(
-        f"Youtube NetworkX average degree: {sum(dict(youtube_graph.degree()).values()) / youtube_graph.number_of_nodes()}"
-    )
-    print(
-        f"Youtube NetworkX max degree: {max(dict(youtube_graph.degree()).values())}\n"
-    )
-
-    # Facebook
-    facebook_graph = nx.Graph()
-    facebook_graph.add_edges_from(facebook_data)
-    print(
-        f"Facebook NetworkX has {facebook_graph.number_of_nodes()} nodes and {facebook_graph.number_of_edges()} edges."
-    )
-    print(
-        f"Facebook NetworkX average degree: {sum(dict(facebook_graph.degree()).values()) / facebook_graph.number_of_nodes()}"
-    )
-    print(
-        f"Facebook NetworkX max degree: {max(dict(facebook_graph.degree()).values())}\n"
-    )
-
-    # Protein
-    protein_graph = nx.Graph()
-    protein_graph.add_edges_from(protein_edges)
-    print(
-        f"Protein NetworkX has {protein_graph.number_of_nodes()} nodes and {protein_graph.number_of_edges()} edges."
-    )
-    print(
-        f"Protein NetworkX average degree: {sum(dict(protein_graph.degree()).values())
-                                              / protein_graph.number_of_nodes()}"
-    )
-    print(
-        f"Protein NetworkX max degree: {max(dict(protein_graph.degree()).values())}\n"
-    )
-
     # degree distribution (log-log plot)
-    plot_degree_distribution(youtube_dok, "YouTube")
-    plot_degree_distribution(facebook_dok, "Facebook")
-    plot_degree_distribution(protein_dok, "Protein")
+    plot_degree_distribution_from_attrs(youtube_attrs, "YouTube")
+    plot_degree_distribution_from_attrs(facebook_attrs, "Facebook")
+    plot_degree_distribution_from_attrs(protein_attrs, "Protein")
 
     # clustering coefficient distribution (log-log plot)
-    plot_clustering_distribution(youtube_dok, "YouTube")
-    plot_clustering_distribution(facebook_dok, "Facebook")
-    plot_clustering_distribution(protein_dok, "Protein")
+    plot_clustering_distribution_from_attrs(youtube_attrs, "YouTube")
+    plot_clustering_distribution_from_attrs(facebook_attrs, "Facebook")
+    plot_clustering_distribution_from_attrs(protein_attrs, "Protein")
 
 
 if __name__ == "__main__":
