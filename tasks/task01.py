@@ -9,8 +9,9 @@ import matplotlib.pyplot as plt
 import os
 import time
 import multiprocessing as mp
-from functools import partial
+from tqdm import tqdm
 import networkx as nx
+from scipy.sparse import csr_matrix
 
 OUTPUT_DIR = "../results/task01/"
 
@@ -79,22 +80,54 @@ def calculate_max_degree(dok):
     return degrees.max()
 
 
-def clustering_worker(args):
-    node, neighbors_dict, all_neighbors = args
-    neighbors = list(neighbors_dict.keys())
-    k = len(neighbors)
+# add clustering worker globals and initializer
+_CLUSTER_A = None
+_CLUSTER_NODES = None
+_CLUSTER_N = None
+_CLUSTER_PROG_Q = None
+_CLUSTER_WORKER_IDX = None
+
+
+def _init_clustering_worker(A_csr, nodes, n, prog_q=None, counter=None):
+    global _CLUSTER_A, _CLUSTER_NODES, _CLUSTER_N, _CLUSTER_PROG_Q, _CLUSTER_WORKER_IDX
+    _CLUSTER_A = A_csr
+    _CLUSTER_NODES = nodes
+    _CLUSTER_N = n
+    _CLUSTER_PROG_Q = prog_q
+    # assign a small worker id if counter provided
+    if counter is not None:
+        with counter.get_lock():
+            _CLUSTER_WORKER_IDX = counter.value
+            counter.value += 1
+    else:
+        _CLUSTER_WORKER_IDX = None
+
+
+def _clustering_worker_idx(idx):
+    A = _CLUSTER_A
+    nodes = _CLUSTER_NODES
+    q = _CLUSTER_PROG_Q
+    wid = _CLUSTER_WORKER_IDX
+
+    row = A.getrow(idx)
+    neigh_idx = row.indices
+    k = neigh_idx.size
     if k < 2:
-        return node, 0.0
+        if q is not None and wid is not None:
+            q.put((wid, 1))
+        return nodes[idx], 0.0
 
-    links = 0
-    for i in range(k):
-        for j in range(i + 1, k):
-            n1, n2 = neighbors[i], neighbors[j]
-            if n2 in all_neighbors.get(n1, {}):
-                links += 1
+    sub = A[neigh_idx][:, neigh_idx]  # k x k sparse
+    s = sub.sum()
+    try:
+        links = float(s) / 2.0
+    except Exception:
+        links = float(np.asarray(s).sum()) / 2.0
 
-    cc = (2 * links) / (k * (k - 1))
-    return node, cc
+    cc = (2.0 * links) / (k * (k - 1))
+    if q is not None and wid is not None:
+        q.put((wid, 1))
+    return nodes[idx], cc
 
 
 def compute_node_attributes(dok, attr_csv_path):
@@ -116,12 +149,52 @@ def compute_node_attributes(dok, attr_csv_path):
     nodes = list(dok.keys())
     degrees = {node: len(dok[node]) for node in nodes}
 
+    # Build CSR adjacency once (from DoK)
+    node_to_idx = {node: idx for idx, node in enumerate(nodes)}
+    rows, cols = [], []
+    for node, neigh in dok.items():
+        i = node_to_idx[node]
+        for nb in neigh:
+            j = node_to_idx.get(nb)
+            if j is not None:
+                rows.append(i)
+                cols.append(j)
+    data_arr = np.ones(len(rows), dtype=np.int8)
+    A = csr_matrix((data_arr, (rows, cols)), shape=(len(nodes), len(nodes)))
+
     t0 = time.time()
     n_proc = max(1, mp.cpu_count() - 1)
-    worker_args = [(node, dok[node], dok) for node in nodes]
 
-    with mp.Pool(processes=n_proc) as pool:
-        clustering_results = pool.map(clustering_worker, worker_args)
+    clustering_results = []
+
+    # Create small shared counter + queue and start listener for progress
+    counter = mp.Value("i", 0)
+    prog_q = mp.Queue()
+    listener = mp.Process(
+        target=_progress_listener, args=(prog_q, n_proc, len(nodes)), daemon=True
+    )
+    listener.start()
+
+    # initialize workers with CSR and progress queue
+    chunksize = max(1, len(nodes) // (n_proc * 8))
+    with mp.Pool(
+        processes=n_proc,
+        initializer=_init_clustering_worker,
+        initargs=(A, nodes, len(nodes), prog_q, counter),
+    ) as pool:
+        for res in tqdm(
+            pool.imap_unordered(
+                _clustering_worker_idx, range(len(nodes)), chunksize=chunksize
+            ),
+            total=len(nodes),
+            desc="Computing clustering",
+            unit="nodes",
+        ):
+            clustering_results.append(res)
+
+    # stop listener
+    prog_q.put((-1, 0))
+    listener.join()
 
     t1 = time.time()
     print(f"Clustering coefficients computed in {t1-t0:.2f} seconds.")
@@ -157,6 +230,115 @@ def common_neighbors_worker(node, all_neighbor_sets):
     return node, avg_common, max_common
 
 
+def compute_common_neighbors_worker(node, neighbor_sets):
+    neighbors = neighbor_sets[node]
+    avg_common = 0
+    max_common = 0
+    count = 0
+
+    for other in neighbor_sets:
+        if other == node:
+            continue
+        common = len(neighbors & neighbor_sets[other])
+        avg_common += common
+        max_common = max(max_common, common)
+        count += 1
+
+    avg_common = avg_common / count if count else 0
+    return node, avg_common, max_common
+
+
+# worker globals for pool initializer
+_GLOBAL_A = None
+_GLOBAL_NODES = None
+_GLOBAL_NODE_TO_IDX = None
+_GLOBAL_N = None
+_GLOBAL_PROG_Q = None
+_GLOBAL_WORKER_IDX = None
+
+
+def _init_common_worker(A_csr, nodes, node_to_idx, n, prog_q, counter):
+    # initializer: share large objects and assign a small worker index
+    global _GLOBAL_A, _GLOBAL_NODES, _GLOBAL_NODE_TO_IDX, _GLOBAL_N, _GLOBAL_PROG_Q, _GLOBAL_WORKER_IDX
+    _GLOBAL_A = A_csr
+    _GLOBAL_NODES = nodes
+    _GLOBAL_NODE_TO_IDX = node_to_idx
+    _GLOBAL_N = n
+    _GLOBAL_PROG_Q = prog_q
+    # assign a 0-based worker index atomically
+    with counter.get_lock():
+        _GLOBAL_WORKER_IDX = counter.value
+        counter.value += 1
+
+
+def _compute_stats_idx(idx):
+    # uses globals set by initializer, and reports progress via _GLOBAL_PROG_Q
+    A = _GLOBAL_A
+    nodes = _GLOBAL_NODES
+    n = _GLOBAL_N
+    q = _GLOBAL_PROG_Q
+    wid = _GLOBAL_WORKER_IDX
+
+    row = A.getrow(idx)
+    neighbors_idx = row.indices
+    if neighbors_idx.size == 0:
+        # report and return quickly
+        if q is not None:
+            q.put((wid, 1))
+        return nodes[idx], 0.0, 0
+
+    # sum adjacency rows of neighbors -> common neighbor counts between idx and all nodes
+    sub = A[neighbors_idx]  # shape (k, n) sparse
+    counts = np.asarray(sub.sum(axis=0)).ravel()  # 1D ndarray
+    # exclude self
+    if idx < counts.size:
+        counts[idx] = 0
+    sum_common = float(counts.sum())
+    max_common = int(counts.max()) if counts.size > 0 else 0
+    avg_common = sum_common / (n - 1) if n > 1 else 0.0
+
+    # signal progress (one node processed)
+    if q is not None:
+        q.put((wid, 1))
+    return nodes[idx], avg_common, max_common
+
+
+def _progress_listener(q, n_workers, total):
+    # run in a separate process; shows one bar per worker + a total bar
+    from tqdm import tqdm as _tqdm
+
+    per_bars = []
+    # total bar at position 0
+    total_bar = _tqdm(total=total, desc="Total", position=0, unit=" nodes")
+    # per-worker bars starting at position 1
+    # use indeterminate bars (no total) so they don't show the global total per worker
+    for i in range(n_workers):
+        per_bars.append(
+            _tqdm(
+                total=None,  # do not set total to overall total
+                desc=f"worker-{i} ",
+                position=i + 1,
+                unit=" nodes",
+                leave=False,
+            )
+        )
+    processed = 0
+    while processed < total:
+        try:
+            wid, cnt = q.get(timeout=1.0)
+        except Exception:
+            continue
+        if wid == -1:
+            break
+        processed += cnt
+        total_bar.update(cnt)
+        if 0 <= wid < n_workers:
+            per_bars[wid].update(cnt)
+    for pb in per_bars:
+        pb.close()
+    total_bar.close()
+
+
 def compute_common_neighbors_stats(dok, attr_csv_path):
     attr_csv_path = Path(attr_csv_path)
 
@@ -174,25 +356,62 @@ def compute_common_neighbors_stats(dok, attr_csv_path):
     attr_csv_path.parent.mkdir(parents=True, exist_ok=True)
 
     nodes = list(dok.keys())
-    neighbor_sets = {node: set(dok[node].keys()) for node in nodes}
+    n = len(nodes)
+    node_to_idx = {node: idx for idx, node in enumerate(nodes)}
+
+    # Build sparse adjacency matrix (CSR) from DoK
+    rows, cols = [], []
+    for node, neighbors in dok.items():
+        i = node_to_idx[node]
+        for nb in neighbors:
+            j = node_to_idx.get(nb)
+            if j is not None:
+                rows.append(i)
+                cols.append(j)
+    data = np.ones(len(rows), dtype=np.int8)
+    A = csr_matrix((data, (rows, cols)), shape=(n, n))
 
     t0 = time.time()
     n_proc = max(1, mp.cpu_count() - 1)
-    worker_func = partial(common_neighbors_worker, all_neighbor_sets=neighbor_sets)
 
-    with mp.Pool(processes=n_proc) as pool:
-        results = pool.map(worker_func, nodes)
+    # Create a small shared counter and a Queue for progress messages
+    counter = mp.Value("i", 0)
+    prog_q = mp.Queue()
+
+    # start listener process (separate process to render tqdm without blocking)
+    listener = mp.Process(
+        target=_progress_listener, args=(prog_q, n_proc, n), daemon=True
+    )
+    listener.start()
+
+    # parallel per-node, initializer shares A and mappings once and gets prog_q + counter
+    chunksize = max(1, n // (n_proc * 8))
+    with mp.Pool(
+        processes=n_proc,
+        initializer=_init_common_worker,
+        initargs=(A, nodes, node_to_idx, n, prog_q, counter),
+    ) as pool:
+        it = pool.imap_unordered(_compute_stats_idx, range(n), chunksize=chunksize)
+        results_list = list(it)
+
+    # signal listener to finish and wait
+    prog_q.put((-1, 0))
+    listener.join()
+
+    # keep original node order when writing
+    results_dict = dict(results_list)
 
     t1 = time.time()
-    print(f"Common neighbors computed in {t1-t0:.2f} seconds.")
+    print(f"Common neighbors stats computed in {t1 - t0:.2f} seconds.")
 
     with attr_csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["node", "avg_common", "max_common"])
-        for node, avg_common, max_common in results:
+        for node in nodes:
+            avg_common, max_common = results_dict[node]
             writer.writerow([node, avg_common, max_common])
 
-    stats = {node: (avg_common, max_common) for node, avg_common, max_common in results}
+    stats = {node: results_dict[node] for node in nodes}
     return stats
 
 
