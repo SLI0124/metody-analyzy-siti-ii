@@ -13,6 +13,22 @@ matplotlib.use("Agg")
 
 OUTPUT_DIR = "../results/task01/"
 
+# Global variables for multiprocessing worker initialization
+# Clustering computation workers
+_CLUSTER_A = None
+_CLUSTER_NODES = None
+_CLUSTER_N = None
+_CLUSTER_PROG_Q = None
+_CLUSTER_WORKER_IDX = None
+
+# Common neighbors computation workers
+_GLOBAL_A = None
+_GLOBAL_NODES = None
+_GLOBAL_NODE_TO_IDX = None
+_GLOBAL_N = None
+_GLOBAL_PROG_Q = None
+_GLOBAL_WORKER_IDX = None
+
 
 def load_data(input_path):
     path = Path(input_path)
@@ -20,29 +36,34 @@ def load_data(input_path):
     with path.open("r", encoding="utf-8") as f:
         lines = [ln.rstrip() for ln in f if ln.strip()]
 
+    # Handle protein network format (string IDs)
     if name == "9606.protein.links.v10.5.txt":
         if lines and lines[0].startswith("protein1"):
-            lines = lines[1:]
+            lines = lines[1:]  # Skip header
         return [ln.split()[:2] for ln in lines]
 
+    # Handle YouTube network format (numeric IDs, skip comments)
     if name == "com-youtube.ungraph.txt":
         data_lines = [ln for ln in lines if not ln.lstrip().startswith("#")]
         return [[int(x) for x in ln.split()[:2]] for ln in data_lines]
 
+    # Handle Facebook network format (MTX format, skip metadata)
     if name == "socfb-Penn94.mtx":
         data_lines = [ln for ln in lines if not ln.lstrip().startswith("%")]
         if data_lines:
-            data_lines = data_lines[1:]
+            data_lines = data_lines[1:]  # Skip dimension line
         return [[int(x) for x in ln.split()[:2]] for ln in data_lines]
 
     return lines
 
 
 def create_protein_dict(lines):
+    """Convert protein string IDs to numeric IDs for consistent processing"""
     protein_to_id = {}
     mapped_edges = []
     current_id = 1
 
+    # Map each unique protein string to a numeric ID
     for pair in lines:
         src, dst = pair
         if src not in protein_to_id:
@@ -53,6 +74,7 @@ def create_protein_dict(lines):
             current_id += 1
         mapped_edges.append([protein_to_id[src], protein_to_id[dst]])
 
+    # Create reverse mapping (ID -> protein string) for later use
     id_to_protein = [""] * len(protein_to_id)
     for protein, idx in protein_to_id.items():
         id_to_protein[idx - 1] = protein
@@ -61,8 +83,10 @@ def create_protein_dict(lines):
 
 
 def create_dictionary_of_keys(lines):
+    """Convert edge list to adjacency dictionary for efficient neighbor lookups"""
     dok = {}
     for src, dst in lines:
+        # Add undirected edges (both directions)
         dok.setdefault(src, {})[dst] = 1
         dok.setdefault(dst, {})[src] = 1
     return dok
@@ -78,21 +102,14 @@ def calculate_max_degree(dok):
     return degrees.max()
 
 
-# add clustering worker globals and initializer
-_CLUSTER_A = None
-_CLUSTER_NODES = None
-_CLUSTER_N = None
-_CLUSTER_PROG_Q = None
-_CLUSTER_WORKER_IDX = None
-
-
 def _init_clustering_worker(A_csr, nodes, n, prog_q=None, counter=None):
+    """Initialize global variables in each worker process"""
     global _CLUSTER_A, _CLUSTER_NODES, _CLUSTER_N, _CLUSTER_PROG_Q, _CLUSTER_WORKER_IDX
     _CLUSTER_A = A_csr
     _CLUSTER_NODES = nodes
     _CLUSTER_N = n
     _CLUSTER_PROG_Q = prog_q
-    # assign a small worker id if counter provided
+    # Assign unique worker ID for progress tracking
     if counter is not None:
         with counter.get_lock():
             _CLUSTER_WORKER_IDX = counter.value
@@ -102,27 +119,31 @@ def _init_clustering_worker(A_csr, nodes, n, prog_q=None, counter=None):
 
 
 def _clustering_worker_idx(idx):
+    """Compute clustering coefficient for a single node"""
     A = _CLUSTER_A
     nodes = _CLUSTER_NODES
     q = _CLUSTER_PROG_Q
     wid = _CLUSTER_WORKER_IDX
 
+    # Get neighbors of node at index idx
     row = A.getrow(idx)
     neigh_idx = row.indices
     k = neigh_idx.size
+
+    # Clustering coefficient undefined for nodes with degree < 2
     if k < 2:
         if q is not None and wid is not None:
             q.put((wid, 1))
         return nodes[idx], 0.0
 
-    sub = A[neigh_idx][:, neigh_idx]  # k x k sparse
+    # Extract subgraph induced by neighbors
+    sub = A[neigh_idx][:, neigh_idx]  # k x k sparse matrix
     s = sub.sum()
-    try:
-        links = float(s) / 2.0
-    except Exception:
-        links = float(np.asarray(s).sum()) / 2.0
+    links = float(s) / 2.0  # Each edge counted twice in adjacency matrix
 
+    # Clustering coefficient: actual links / possible links
     cc = (2.0 * links) / (k * (k - 1))
+
     if q is not None and wid is not None:
         q.put((wid, 1))
     return nodes[idx], cc
@@ -147,7 +168,7 @@ def compute_node_attributes(dok, attr_csv_path):
     nodes = list(dok.keys())
     degrees = {node: len(dok[node]) for node in nodes}
 
-    # Build CSR adjacency once (from DoK)
+    # Build sparse adjacency matrix (CSR format) from dictionary of keys
     node_to_idx = {node: idx for idx, node in enumerate(nodes)}
     rows, cols = [], []
     for node, neigh in dok.items():
@@ -162,21 +183,19 @@ def compute_node_attributes(dok, attr_csv_path):
 
     t0 = time.time()
     n_proc = max(1, mp.cpu_count() - 1)
-
     clustering_results = []
 
-    # Create small shared counter + queue and start listener for progress
-    counter = mp.Value("i", 0)
-    prog_q = mp.Queue()
+    # Setup multiprocessing with progress tracking
+    counter = mp.Value("i", 0)  # Shared counter for worker IDs
+    prog_q = mp.Queue()  # Queue for progress updates
+
+    # Start separate process to handle progress display
     listener = mp.Process(
         target=_progress_listener, args=(prog_q, n_proc, len(nodes)), daemon=True
     )
     listener.start()
 
-    # initialize workers with CSR and progress queue
     chunksize = max(1, len(nodes) // (n_proc * 8))
-
-    # Print a short informative message so user knows what's being computed
     print(
         f"Starting clustering coefficient computation for {attr_csv_path.name}: {len(nodes)} nodes, using {n_proc} processes..."
     )
@@ -196,9 +215,8 @@ def compute_node_attributes(dok, attr_csv_path):
         ):
             clustering_results.append(res)
 
-    # stop listener
+    # Signal listener to stop and cleanup
     prog_q.put((-1, 0))
-    # wait for listener to finish, but avoid indefinite hang
     listener.join(timeout=10)
     if listener.is_alive():
         listener.terminate()
@@ -257,91 +275,82 @@ def compute_common_neighbors_worker(node, neighbor_sets):
     return node, avg_common, max_common
 
 
-# worker globals for pool initializer
-_GLOBAL_A = None
-_GLOBAL_NODES = None
-_GLOBAL_NODE_TO_IDX = None
-_GLOBAL_N = None
-_GLOBAL_PROG_Q = None
-_GLOBAL_WORKER_IDX = None
-
-
 def _init_common_worker(A_csr, nodes, node_to_idx, n, prog_q, counter):
-    # initializer: share large objects and assign a small worker index
+    """Initialize global variables in each worker process for common neighbors computation"""
     global _GLOBAL_A, _GLOBAL_NODES, _GLOBAL_NODE_TO_IDX, _GLOBAL_N, _GLOBAL_PROG_Q, _GLOBAL_WORKER_IDX
     _GLOBAL_A = A_csr
     _GLOBAL_NODES = nodes
     _GLOBAL_NODE_TO_IDX = node_to_idx
     _GLOBAL_N = n
     _GLOBAL_PROG_Q = prog_q
-    # assign a 0-based worker index atomically
+    # Atomically assign unique worker ID
     with counter.get_lock():
         _GLOBAL_WORKER_IDX = counter.value
         counter.value += 1
 
 
 def _compute_stats_idx(idx):
-    # uses globals set by initializer, and reports progress via _GLOBAL_PROG_Q
+    """Compute common neighbor statistics for a single node"""
     A = _GLOBAL_A
     nodes = _GLOBAL_NODES
     n = _GLOBAL_N
     q = _GLOBAL_PROG_Q
     wid = _GLOBAL_WORKER_IDX
 
+    # Get neighbors of node at index idx
     row = A.getrow(idx)
     neighbors_idx = row.indices
     if neighbors_idx.size == 0:
-        # report and return quickly
         if q is not None:
             q.put((wid, 1))
         return nodes[idx], 0.0, 0
 
-    # sum adjacency rows of neighbors -> common neighbor counts between idx and all nodes
-    sub = A[neighbors_idx]  # shape (k, n) sparse
-    counts = np.asarray(sub.sum(axis=0)).ravel()  # 1D ndarray
-    # exclude self
+    # For each neighbor, sum their connections to get common neighbor counts
+    # This efficiently computes |neighbors(idx) ∩ neighbors(j)| for all j
+    sub = A[neighbors_idx]  # Extract rows corresponding to neighbors
+    counts = np.asarray(sub.sum(axis=0)).ravel()  # Sum columns to get counts
+
+    # Exclude node with itself
     if idx < counts.size:
         counts[idx] = 0
+
     sum_common = float(counts.sum())
     max_common = int(counts.max()) if counts.size > 0 else 0
     avg_common = sum_common / (n - 1) if n > 1 else 0.0
 
-    # signal progress (one node processed)
     if q is not None:
         q.put((wid, 1))
     return nodes[idx], avg_common, max_common
 
 
 def _progress_listener(q, n_workers, total):
-    # run in a separate process; shows one bar per worker + a total bar
-
+    """Display progress bars for multiprocessing tasks"""
     per_bars = []
-    # total bar at position 0
     total_bar = tqdm(total=total, desc="Total", position=0, unit=" nodes")
-    # per-worker bars starting at position 1
-    # use indeterminate bars (no total) so they don't show the global total per worker
+
+    # Create individual progress bars for each worker
     for i in range(n_workers):
         per_bars.append(
             tqdm(
-                total=None,  # do not set total to overall total
+                total=None,  # This was glitching so I set to None
                 desc=f"worker-{i} ",
                 position=i + 1,
                 unit=" nodes",
                 leave=False,
             )
         )
+
     processed = 0
     while processed < total:
-        try:
-            wid, cnt = q.get(timeout=1.0)
-        except Exception:
-            continue
-        if wid == -1:
+        wid, cnt = q.get(timeout=1.0)
+        if wid == -1:  # Termination signal
             break
         processed += cnt
         total_bar.update(cnt)
         if 0 <= wid < n_workers:
             per_bars[wid].update(cnt)
+
+    # Cleanup progress bars
     for pb in per_bars:
         pb.close()
     total_bar.close()
@@ -367,7 +376,7 @@ def compute_common_neighbors_stats(dok, attr_csv_path):
     n = len(nodes)
     node_to_idx = {node: idx for idx, node in enumerate(nodes)}
 
-    # Build sparse adjacency matrix (CSR) from DoK
+    # Build sparse adjacency matrix (CSR format) from DoK
     rows, cols = [], []
     for node, neighbors in dok.items():
         i = node_to_idx[node]
@@ -381,23 +390,18 @@ def compute_common_neighbors_stats(dok, attr_csv_path):
 
     t0 = time.time()
     n_proc = max(1, mp.cpu_count() - 1)
-
-    # Create a small shared counter and a Queue for progress messages
     counter = mp.Value("i", 0)
     prog_q = mp.Queue()
 
-    # start listener process (separate process to render tqdm without blocking)
     listener = mp.Process(
         target=_progress_listener, args=(prog_q, n_proc, n), daemon=True
     )
     listener.start()
 
-    # Print a short informative message so user knows what's being computed
     print(
         f"Starting common-neighbors computation for {attr_csv_path.name}: {n} nodes, using {n_proc} processes..."
     )
 
-    # parallel per-node, initializer shares A and mappings once and gets prog_q + counter
     chunksize = max(1, n // (n_proc * 8))
     with mp.Pool(
         processes=n_proc,
@@ -407,18 +411,14 @@ def compute_common_neighbors_stats(dok, attr_csv_path):
         it = pool.imap_unordered(_compute_stats_idx, range(n), chunksize=chunksize)
         results_list = list(it)
 
-    # signal listener to finish and wait
     prog_q.put((-1, 0))
-    # wait with timeout to avoid hanging if listener stalls
     listener.join(timeout=10)
     if listener.is_alive():
         listener.terminate()
         listener.join()
         print("Progress listener terminated after timeout.")
 
-    # keep original node order when writing
-    # results_list contains (node, avg_common, max_common) tuples;
-    # convert into { node: (avg_common, max_common) }
+    # Convert list of results to dictionary, maintaining original node order
     results_dict = {
         node: (avg_common, max_common) for node, avg_common, max_common in results_list
     }
@@ -453,6 +453,8 @@ def plot_degree_distribution_from_attrs(node_attrs, title):
 
 
 def plot_clustering_distribution_from_attrs(node_attrs, title):
+    """Plot average clustering coefficient vs degree (log-log scale)"""
+    # Group clustering coefficients by degree
     deg_to_cc = {}
     for deg, cc in node_attrs.values():
         if deg > 0:
