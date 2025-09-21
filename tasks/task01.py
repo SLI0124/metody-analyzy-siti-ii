@@ -4,7 +4,7 @@ import os
 import time
 import multiprocessing as mp
 import matplotlib
-import numpy as np
+from collections import Counter
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from queue import Empty
@@ -93,13 +93,13 @@ def create_dictionary_of_keys(lines):
 
 
 def calculate_average_degree(dok):
-    degrees = np.fromiter((len(neigh) for neigh in dok.values()), dtype=int)
-    return degrees.mean()
+    degrees = [len(neigh) for neigh in dok.values()]
+    return sum(degrees) / len(degrees) if degrees else 0.0
 
 
 def calculate_max_degree(dok):
-    degrees = np.fromiter((len(neigh) for neigh in dok.values()), dtype=int)
-    return degrees.max()
+    degrees = [len(neigh) for neigh in dok.values()]
+    return max(degrees) if degrees else 0
 
 
 def _init_clustering_worker(neighbor_sets, nodes, n, prog_q=None, counter=None):
@@ -444,8 +444,10 @@ def compute_common_neighbors_stats(dok, attr_csv_path):
 
 
 def plot_degree_distribution_from_attrs(node_attrs, title):
-    degrees = np.array([deg for deg, _ in node_attrs.values()])
-    unique, counts = np.unique(degrees, return_counts=True)
+    degrees = [deg for deg, _ in node_attrs.values()]
+    cnt = Counter(degrees)
+    unique = sorted(cnt.keys())
+    counts = [cnt[d] for d in unique]
     plt.figure()
     plt.loglog(unique, counts, marker="o", linestyle="None")
     plt.title(f"Degree Distribution: {title}")
@@ -467,7 +469,7 @@ def plot_clustering_distribution_from_attrs(node_attrs, title):
             deg_to_cc.setdefault(deg, []).append(cc)
 
     degrees = sorted(deg_to_cc.keys())
-    avg_ccs = [np.mean(deg_to_cc[deg]) for deg in degrees]
+    avg_ccs = [sum(deg_to_cc[deg]) / len(deg_to_cc[deg]) for deg in degrees]
 
     plt.figure()
     plt.loglog(degrees, avg_ccs, marker="o", linestyle="None")
@@ -482,8 +484,8 @@ def plot_clustering_distribution_from_attrs(node_attrs, title):
 
 
 def plot_common_neighbors_distribution(stats, title):
-    avg_common = np.array([v[0] for v in stats.values()])
-    max_common = np.array([v[1] for v in stats.values()])
+    avg_common = [v[0] for v in stats.values()]
+    max_common = [v[1] for v in stats.values()]
 
     plt.figure()
     plt.hist(avg_common, bins=100, log=True)
@@ -506,14 +508,19 @@ def plot_common_neighbors_distribution(stats, title):
 
 
 def print_network_stats(name, node_attrs, common_stats):
-    degrees = np.array([deg for deg, _ in node_attrs.values()])
-    avg_common = np.array([v[0] for v in common_stats.values()])
-    max_common = np.array([v[1] for v in common_stats.values()])
+    degrees = [deg for deg, _ in node_attrs.values()]
+    avg_common = [v[0] for v in common_stats.values()]
+    max_common = [v[1] for v in common_stats.values()]
 
-    print(f"{name} average degree: {np.mean(degrees)}")
-    print(f"{name} max degree: {np.max(degrees)}")
-    print(f"{name} average of average common neighbors: {np.mean(avg_common)}")
-    print(f"{name} max of max common neighbors: {np.max(max_common)}")
+    avg_deg = sum(degrees) / len(degrees) if degrees else 0.0
+    max_deg = max(degrees) if degrees else 0
+    avg_of_avg_common = sum(avg_common) / len(avg_common) if avg_common else 0.0
+    max_of_max_common = max(max_common) if max_common else 0
+
+    print(f"{name} average degree: {avg_deg}")
+    print(f"{name} max degree: {max_deg}")
+    print(f"{name} average of average common neighbors: {avg_of_avg_common}")
+    print(f"{name} max of max common neighbors: {max_of_max_common}")
 
 
 def main():
