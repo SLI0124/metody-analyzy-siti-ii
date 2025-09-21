@@ -6,7 +6,6 @@ import multiprocessing as mp
 import matplotlib
 import numpy as np
 from tqdm import tqdm
-from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
 from queue import Empty
 
@@ -16,14 +15,14 @@ OUTPUT_DIR = "../results/task01/"
 
 # Global variables for multiprocessing worker initialization
 # Clustering computation workers
-_CLUSTER_A = None
+_CLUSTER_A = None  # will hold neighbor_sets: dict(idx -> set(neighbor_idx))
 _CLUSTER_NODES = None
 _CLUSTER_N = None
 _CLUSTER_PROG_Q = None
 _CLUSTER_WORKER_IDX = None
 
 # Common neighbors computation workers
-_GLOBAL_A = None
+_GLOBAL_A = None  # will hold neighbor_sets: dict(idx -> set(neighbor_idx))
 _GLOBAL_NODES = None
 _GLOBAL_NODE_TO_IDX = None
 _GLOBAL_N = None
@@ -103,10 +102,10 @@ def calculate_max_degree(dok):
     return degrees.max()
 
 
-def _init_clustering_worker(A_csr, nodes, n, prog_q=None, counter=None):
-    """Initialize global variables in each worker process"""
+def _init_clustering_worker(neighbor_sets, nodes, n, prog_q=None, counter=None):
+    """Initialize global variables in each worker process (using DoK sets)"""
     global _CLUSTER_A, _CLUSTER_NODES, _CLUSTER_N, _CLUSTER_PROG_Q, _CLUSTER_WORKER_IDX
-    _CLUSTER_A = A_csr
+    _CLUSTER_A = neighbor_sets
     _CLUSTER_NODES = nodes
     _CLUSTER_N = n
     _CLUSTER_PROG_Q = prog_q
@@ -120,16 +119,15 @@ def _init_clustering_worker(A_csr, nodes, n, prog_q=None, counter=None):
 
 
 def _clustering_worker_idx(idx):
-    """Compute clustering coefficient for a single node"""
-    A = _CLUSTER_A
+    """Compute clustering coefficient for a single node using DoK neighbor sets (optimized)."""
+    neighbor_sets = _CLUSTER_A
     nodes = _CLUSTER_NODES
     q = _CLUSTER_PROG_Q
     wid = _CLUSTER_WORKER_IDX
 
     # Get neighbors of node at index idx
-    row = A.getrow(idx)
-    neigh_idx = row.indices
-    k = neigh_idx.size
+    neigh_set = neighbor_sets.get(idx, set())
+    k = len(neigh_set)
 
     # Clustering coefficient undefined for nodes with degree < 2
     if k < 2:
@@ -137,12 +135,16 @@ def _clustering_worker_idx(idx):
             q.put((wid, 1))
         return nodes[idx], 0.0
 
-    # Extract subgraph induced by neighbors
-    sub = A[neigh_idx][:, neigh_idx]  # k x k sparse matrix
-    s = sub.sum()
-    links = float(s) / 2.0  # Each edge counted twice in adjacency matrix
+    # Efficiently count links among neighbors:
+    # sum_{u in N(v)} |N(v) ∩ N(u)| = 2 * links_among_neighbors
+    # so links = sum_intersections / 2
+    sum_intersections = 0
+    for ni in neigh_set:
+        ni_neighbors = neighbor_sets.get(ni, set())
+        # intersection cost is min(len(neigh_set), len(ni_neighbors))
+        sum_intersections += len(neigh_set & ni_neighbors)
 
-    # Clustering coefficient: actual links / possible links
+    links = sum_intersections / 2.0
     cc = (2.0 * links) / (k * (k - 1))
 
     if q is not None and wid is not None:
@@ -169,18 +171,15 @@ def compute_node_attributes(dok, attr_csv_path):
     nodes = list(dok.keys())
     degrees = {node: len(dok[node]) for node in nodes}
 
-    # Build sparse adjacency matrix (CSR format) from dictionary of keys
+    # Build DoK neighbor-sets (index-based) from dictionary of keys
     node_to_idx = {node: idx for idx, node in enumerate(nodes)}
-    rows, cols = [], []
+    neighbor_sets = {idx: set() for idx in range(len(nodes))}
     for node, neigh in dok.items():
         i = node_to_idx[node]
         for nb in neigh:
             j = node_to_idx.get(nb)
             if j is not None:
-                rows.append(i)
-                cols.append(j)
-    data_arr = np.ones(len(rows), dtype=np.int8)
-    A = csr_matrix((data_arr, (rows, cols)), shape=(len(nodes), len(nodes)))
+                neighbor_sets[i].add(j)
 
     t0 = time.time()
     n_proc = max(1, mp.cpu_count() - 1)
@@ -204,7 +203,7 @@ def compute_node_attributes(dok, attr_csv_path):
     with mp.Pool(
         processes=n_proc,
         initializer=_init_clustering_worker,
-        initargs=(A, nodes, len(nodes), prog_q, counter),
+        initargs=(neighbor_sets, nodes, len(nodes), prog_q, counter),
     ) as pool:
         for res in tqdm(
             pool.imap_unordered(
@@ -276,10 +275,10 @@ def compute_common_neighbors_worker(node, neighbor_sets):
     return node, avg_common, max_common
 
 
-def _init_common_worker(A_csr, nodes, node_to_idx, n, prog_q, counter):
-    """Initialize global variables in each worker process for common neighbors computation"""
+def _init_common_worker(neighbor_sets, nodes, node_to_idx, n, prog_q, counter):
+    """Initialize global variables in each worker process for common neighbors computation (DoK)"""
     global _GLOBAL_A, _GLOBAL_NODES, _GLOBAL_NODE_TO_IDX, _GLOBAL_N, _GLOBAL_PROG_Q, _GLOBAL_WORKER_IDX
-    _GLOBAL_A = A_csr
+    _GLOBAL_A = neighbor_sets
     _GLOBAL_NODES = nodes
     _GLOBAL_NODE_TO_IDX = node_to_idx
     _GLOBAL_N = n
@@ -291,32 +290,37 @@ def _init_common_worker(A_csr, nodes, node_to_idx, n, prog_q, counter):
 
 
 def _compute_stats_idx(idx):
-    """Compute common neighbor statistics for a single node"""
-    A = _GLOBAL_A
+    """Compute common neighbor statistics for a single node using DoK sets (optimized)."""
+    neighbor_sets = _GLOBAL_A
     nodes = _GLOBAL_NODES
     n = _GLOBAL_N
     q = _GLOBAL_PROG_Q
     wid = _GLOBAL_WORKER_IDX
 
-    # Get neighbors of node at index idx
-    row = A.getrow(idx)
-    neighbors_idx = row.indices
-    if neighbors_idx.size == 0:
+    neigh = neighbor_sets.get(idx, set())
+    if not neigh:
         if q is not None:
             q.put((wid, 1))
         return nodes[idx], 0.0, 0
 
-    # For each neighbor, sum their connections to get common neighbor counts
-    # This efficiently computes |neighbors(idx) ∩ neighbors(j)| for all j
-    sub = A[neighbors_idx]  # Extract rows corresponding to neighbors
-    counts = np.asarray(sub.sum(axis=0)).ravel()  # Sum columns to get counts
+    # Accumulate counts of shared neighbors for nodes encountered by walking neighbors' neighbor-lists.
+    counts = {}
+    for w in neigh:
+        w_neighbors = neighbor_sets.get(w, set())
+        for u in w_neighbors:
+            # increment count of common neighbors between idx and u
+            counts[u] = counts.get(u, 0) + 1
 
-    # Exclude node with itself
-    if idx < counts.size:
-        counts[idx] = 0
+    # Exclude self
+    counts.pop(idx, None)
 
-    sum_common = float(counts.sum())
-    max_common = int(counts.max()) if counts.size > 0 else 0
+    if counts:
+        sum_common = sum(counts.values())
+        max_common = max(counts.values())
+    else:
+        sum_common = 0
+        max_common = 0
+
     avg_common = sum_common / (n - 1) if n > 1 else 0.0
 
     if q is not None:
@@ -347,7 +351,7 @@ def _progress_listener(q, n_workers, total):
             wid, cnt = q.get(timeout=1.0)
         except Empty:
             continue  # No update available right now; continue waiting without crashing.
-        
+
         if wid == -1:  # Termination signal
             break
         processed += cnt
@@ -381,17 +385,14 @@ def compute_common_neighbors_stats(dok, attr_csv_path):
     n = len(nodes)
     node_to_idx = {node: idx for idx, node in enumerate(nodes)}
 
-    # Build sparse adjacency matrix (CSR format) from DoK
-    rows, cols = [], []
+    # Build DoK neighbor-sets (index-based) from DoK input
+    neighbor_sets = {idx: set() for idx in range(n)}
     for node, neighbors in dok.items():
         i = node_to_idx[node]
         for nb in neighbors:
             j = node_to_idx.get(nb)
             if j is not None:
-                rows.append(i)
-                cols.append(j)
-    data = np.ones(len(rows), dtype=np.int8)
-    A = csr_matrix((data, (rows, cols)), shape=(n, n))
+                neighbor_sets[i].add(j)
 
     t0 = time.time()
     n_proc = max(1, mp.cpu_count() - 1)
@@ -411,7 +412,7 @@ def compute_common_neighbors_stats(dok, attr_csv_path):
     with mp.Pool(
         processes=n_proc,
         initializer=_init_common_worker,
-        initargs=(A, nodes, node_to_idx, n, prog_q, counter),
+        initargs=(neighbor_sets, nodes, node_to_idx, n, prog_q, counter),
     ) as pool:
         it = pool.imap_unordered(_compute_stats_idx, range(n), chunksize=chunksize)
         results_list = list(it)
