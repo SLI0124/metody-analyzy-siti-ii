@@ -177,6 +177,12 @@ def compute_node_attributes(dok, attr_csv_path):
 
     # initialize workers with CSR and progress queue
     chunksize = max(1, len(nodes) // (n_proc * 8))
+
+    # Print a short informative message so user knows what's being computed
+    print(
+        f"Starting clustering coefficient computation for {attr_csv_path.name}: {len(nodes)} nodes, using {n_proc} processes..."
+    )
+
     with mp.Pool(
         processes=n_proc,
         initializer=_init_clustering_worker,
@@ -384,6 +390,11 @@ def compute_common_neighbors_stats(dok, attr_csv_path):
     )
     listener.start()
 
+    # Print a short informative message so user knows what's being computed
+    print(
+        f"Starting common-neighbors computation for {attr_csv_path.name}: {n} nodes, using {n_proc} processes..."
+    )
+
     # parallel per-node, initializer shares A and mappings once and gets prog_q + counter
     chunksize = max(1, n // (n_proc * 8))
     with mp.Pool(
@@ -539,22 +550,6 @@ def main():
     plot_degree_distribution_from_attrs(protein_attrs, "Protein")
     plot_clustering_distribution_from_attrs(protein_attrs, "Protein")
     plot_common_neighbors_distribution(protein_common, "Protein")
-
-    print("\n--- NetworkX Validation ---")
-    for name, data in [
-        ("YouTube", youtube_data, youtube_dok),
-        ("Facebook", facebook_data, facebook_dok),
-        ("Protein", protein_edges, protein_dok),
-    ]:
-        G = nx.Graph()
-        G.add_edges_from(data)
-        avg_deg = sum(dict(G.degree()).values()) / G.number_of_nodes()
-        max_deg = max(dict(G.degree()).values())
-        print(
-            f"{name} NetworkX: nodes={G.number_of_nodes()}, edges={G.number_of_edges()}"
-        )
-        print(f"{name} NetworkX average degree: {avg_deg}")
-        print(f"{name} NetworkX max degree: {max_deg}")
 
 
 if __name__ == "__main__":
