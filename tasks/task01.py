@@ -399,7 +399,11 @@ def compute_common_neighbors_stats(dok, attr_csv_path):
     listener.join()
 
     # keep original node order when writing
-    results_dict = dict(results_list)
+    # results_list contains (node, avg_common, max_common) tuples;
+    # convert into { node: (avg_common, max_common) }
+    results_dict = {
+        node: (avg_common, max_common) for node, avg_common, max_common in results_list
+    }
 
     t1 = time.time()
     print(f"Common neighbors stats computed in {t1 - t0:.2f} seconds.")
