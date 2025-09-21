@@ -8,6 +8,7 @@ import numpy as np
 from tqdm import tqdm
 from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
+from queue import Empty
 
 matplotlib.use("Agg")
 
@@ -342,7 +343,11 @@ def _progress_listener(q, n_workers, total):
 
     processed = 0
     while processed < total:
-        wid, cnt = q.get(timeout=1.0)
+        try:
+            wid, cnt = q.get(timeout=1.0)
+        except Empty:
+            continue  # No update available right now; continue waiting without crashing.
+        
         if wid == -1:  # Termination signal
             break
         processed += cnt
