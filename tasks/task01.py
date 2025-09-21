@@ -1,17 +1,15 @@
-import matplotlib
-
-matplotlib.use("Agg")
-
-import numpy as np
 import csv
 from pathlib import Path
-import matplotlib.pyplot as plt
 import os
 import time
 import multiprocessing as mp
+import matplotlib
+import numpy as np
 from tqdm import tqdm
-import networkx as nx
 from scipy.sparse import csr_matrix
+import matplotlib.pyplot as plt
+
+matplotlib.use("Agg")
 
 OUTPUT_DIR = "../results/task01/"
 
@@ -200,7 +198,12 @@ def compute_node_attributes(dok, attr_csv_path):
 
     # stop listener
     prog_q.put((-1, 0))
-    listener.join()
+    # wait for listener to finish, but avoid indefinite hang
+    listener.join(timeout=10)
+    if listener.is_alive():
+        listener.terminate()
+        listener.join()
+        print("Progress listener terminated after timeout.")
 
     t1 = time.time()
     print(f"Clustering coefficients computed in {t1-t0:.2f} seconds.")
@@ -311,16 +314,15 @@ def _compute_stats_idx(idx):
 
 def _progress_listener(q, n_workers, total):
     # run in a separate process; shows one bar per worker + a total bar
-    from tqdm import tqdm as _tqdm
 
     per_bars = []
     # total bar at position 0
-    total_bar = _tqdm(total=total, desc="Total", position=0, unit=" nodes")
+    total_bar = tqdm(total=total, desc="Total", position=0, unit=" nodes")
     # per-worker bars starting at position 1
     # use indeterminate bars (no total) so they don't show the global total per worker
     for i in range(n_workers):
         per_bars.append(
-            _tqdm(
+            tqdm(
                 total=None,  # do not set total to overall total
                 desc=f"worker-{i} ",
                 position=i + 1,
@@ -407,7 +409,12 @@ def compute_common_neighbors_stats(dok, attr_csv_path):
 
     # signal listener to finish and wait
     prog_q.put((-1, 0))
-    listener.join()
+    # wait with timeout to avoid hanging if listener stalls
+    listener.join(timeout=10)
+    if listener.is_alive():
+        listener.terminate()
+        listener.join()
+        print("Progress listener terminated after timeout.")
 
     # keep original node order when writing
     # results_list contains (node, avg_common, max_common) tuples;
@@ -535,7 +542,7 @@ def main():
     plot_common_neighbors_distribution(facebook_common, "Facebook")
 
     protein_data = load_data("../data/9606.protein.links.v10.5.txt")
-    protein_edges, protein_id_map = create_protein_dict(protein_data)
+    protein_edges, _ = create_protein_dict(protein_data)
     protein_dok = create_dictionary_of_keys(protein_edges)
     print("Protein data loaded and DoK built.")
 
