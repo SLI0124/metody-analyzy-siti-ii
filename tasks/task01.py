@@ -517,10 +517,17 @@ def print_network_stats(name, node_attrs, common_stats):
     avg_of_avg_common = sum(avg_common) / len(avg_common) if avg_common else 0.0
     max_of_max_common = max(max_common) if max_common else 0
 
-    print(f"{name} average degree: {avg_deg}")
+    # Compute average clustering coefficient from node_attrs (second tuple element)
+    clustering_vals = [cc for _, cc in node_attrs.values()]
+    avg_clustering = (
+        sum(clustering_vals) / len(clustering_vals) if clustering_vals else 0.0
+    )
+
+    print(f"\n{name} average degree: {avg_deg}")
     print(f"{name} max degree: {max_deg}")
     print(f"{name} average of average common neighbors: {avg_of_avg_common}")
     print(f"{name} max of max common neighbors: {max_of_max_common}")
+    print(f"{name} average clustering coefficient: {avg_clustering}\n")
 
 
 def main():
