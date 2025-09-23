@@ -92,16 +92,6 @@ def create_dictionary_of_keys(lines):
     return dok
 
 
-def calculate_average_degree(dok):
-    degrees = [len(neigh) for neigh in dok.values()]
-    return sum(degrees) / len(degrees) if degrees else 0.0
-
-
-def calculate_max_degree(dok):
-    degrees = [len(neigh) for neigh in dok.values()]
-    return max(degrees) if degrees else 0
-
-
 def _init_clustering_worker(neighbor_sets, nodes, n, prog_q=None, counter=None):
     """Initialize global variables in each worker process (using DoK sets)"""
     global _CLUSTER_A, _CLUSTER_NODES, _CLUSTER_N, _CLUSTER_PROG_Q, _CLUSTER_WORKER_IDX
