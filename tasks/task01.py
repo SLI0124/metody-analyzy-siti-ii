@@ -229,42 +229,6 @@ def compute_node_attributes(dok, attr_csv_path):
     return node_attrs
 
 
-def common_neighbors_worker(node, all_neighbor_sets):
-    node_neighbors = all_neighbor_sets[node]
-    max_common = 0
-    sum_common = 0
-    count = 0
-
-    for other_node, other_neighbors in all_neighbor_sets.items():
-        if node == other_node:
-            continue
-        common = len(node_neighbors & other_neighbors)
-        sum_common += common
-        max_common = max(max_common, common)
-        count += 1
-
-    avg_common = sum_common / count if count else 0
-    return node, avg_common, max_common
-
-
-def compute_common_neighbors_worker(node, neighbor_sets):
-    neighbors = neighbor_sets[node]
-    avg_common = 0
-    max_common = 0
-    count = 0
-
-    for other in neighbor_sets:
-        if other == node:
-            continue
-        common = len(neighbors & neighbor_sets[other])
-        avg_common += common
-        max_common = max(max_common, common)
-        count += 1
-
-    avg_common = avg_common / count if count else 0
-    return node, avg_common, max_common
-
-
 def _init_common_worker(neighbor_sets, nodes, node_to_idx, n, prog_q, counter):
     """Initialize global variables in each worker process for common neighbors computation (DoK)"""
     global _GLOBAL_A, _GLOBAL_NODES, _GLOBAL_NODE_TO_IDX, _GLOBAL_N, _GLOBAL_PROG_Q, _GLOBAL_WORKER_IDX
@@ -280,38 +244,32 @@ def _init_common_worker(neighbor_sets, nodes, node_to_idx, n, prog_q, counter):
 
 
 def _compute_stats_idx(idx):
-    """Compute common neighbor statistics for a single node using DoK sets (optimized)."""
     neighbor_sets = _GLOBAL_A
     nodes = _GLOBAL_NODES
-    n = _GLOBAL_N
     q = _GLOBAL_PROG_Q
     wid = _GLOBAL_WORKER_IDX
 
-    neigh = neighbor_sets.get(idx, set())
-    if not neigh:
+    current_neighbors = neighbor_sets.get(idx, set())
+    if not current_neighbors:
         if q is not None:
             q.put((wid, 1))
         return nodes[idx], 0.0, 0
 
-    # Accumulate counts of shared neighbors for nodes encountered by walking neighbors' neighbor-lists.
-    counts = {}
-    for w in neigh:
-        w_neighbors = neighbor_sets.get(w, set())
-        for u in w_neighbors:
-            # increment count of common neighbors between idx and u
-            counts[u] = counts.get(u, 0) + 1
+    total_common = 0
+    max_common = 0
+    compared_nodes = 0
 
-    # Exclude self
-    counts.pop(idx, None)
+    for other_idx in current_neighbors:
+        other_neighbors = neighbor_sets.get(other_idx, set())
+        # Exclude both idx and other_idx from the intersection
+        common_neighbors = (current_neighbors & other_neighbors) - {idx, other_idx}
+        common_count = len(common_neighbors)
 
-    if counts:
-        sum_common = sum(counts.values())
-        max_common = max(counts.values())
-    else:
-        sum_common = 0
-        max_common = 0
+        total_common += common_count
+        max_common = max(max_common, common_count)
+        compared_nodes += 1
 
-    avg_common = sum_common / (n - 1) if n > 1 else 0.0
+    avg_common = total_common / compared_nodes if compared_nodes > 0 else 0.0
 
     if q is not None:
         q.put((wid, 1))
