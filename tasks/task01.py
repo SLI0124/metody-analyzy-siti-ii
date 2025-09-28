@@ -9,6 +9,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import gc
 
 matplotlib.use("Agg")
 
@@ -48,7 +49,6 @@ def create_protein_dict(lines):
     mapped_edges = []
     current_id = 1
 
-    # Map each unique protein string to a numeric ID
     for pair in lines:
         src, dst = pair
         if src not in protein_to_id:
@@ -68,7 +68,7 @@ def create_protein_dict(lines):
 
 
 def create_dictionary_of_keys(lines):
-    """Convert edge list to adjacency dictionary for efficient neighbor lookups"""
+    """Convert edge list to adjacency dictionary (DoK sparse matrix)"""
     dok = {}
     for src, dst in lines:
         # Add undirected edges (both directions)
@@ -86,11 +86,10 @@ def calculate_degrees(dok):
 
 
 def worker_clustering_coefficient(args):
-    """Worker function for parallel clustering coefficient calculation - DoK OPTIMIZED"""
+    """Worker function for parallel clustering coefficient calculation"""
     nodes_chunk, dok, worker_id, total_position = args
     local_results = {}
 
-    # Worker progress bar with offset position
     pbar = tqdm(
         nodes_chunk,
         desc=f"Worker {worker_id:02d} CC",
@@ -99,7 +98,7 @@ def worker_clustering_coefficient(args):
     )
 
     for node in pbar:
-        # Get neighbors directly from DoK - this IS the sparse structure
+        # Get neighbors directly from DoK
         if node not in dok:
             local_results[node] = 0.0
             continue
@@ -112,7 +111,7 @@ def worker_clustering_coefficient(args):
             local_results[node] = 0.0
             continue
 
-        # Count triangles by leveraging DoK structure directly - NO SAMPLING
+        # Count triangles using DoK structure for O(1) lookups
         triangle_count = 0
         neighbors_list = list(neighbors_dict.keys())
 
@@ -125,7 +124,7 @@ def worker_clustering_coefficient(args):
                 # Check remaining neighbors to see if they're connected to neighbor_i
                 for j in range(i + 1, len(neighbors_list)):
                     neighbor_j = neighbors_list[j]
-                    # Direct O(1) lookup in DoK - this is the key optimization!
+                    # Direct O(1) lookup in DoK
                     if neighbor_j in neighbor_i_neighbors:
                         triangle_count += 1
 
@@ -140,7 +139,7 @@ def worker_clustering_coefficient(args):
 
 
 def calculate_clustering_coefficients_parallel(dok, n_workers=None, network_name=""):
-    """Calculate clustering coefficients using parallel processing with better load balancing"""
+    """Calculate clustering coefficients using parallel processing with load balancing"""
     if n_workers is None:
         n_workers = min(mp.cpu_count(), 8)
 
@@ -148,23 +147,21 @@ def calculate_clustering_coefficients_parallel(dok, n_workers=None, network_name
 
     # Sort nodes by degree for better load balancing
     node_degrees = [(node, len(dok[node])) for node in nodes]
-    node_degrees.sort(key=lambda x: x[1], reverse=True)  # High degree first
+    node_degrees.sort(key=lambda x: x[1], reverse=True)
 
-    # Distribute nodes in round-robin fashion to balance load
+    # Distribute nodes in round-robin fashion
     chunks = [[] for _ in range(n_workers)]
-    for i, (node, degree) in enumerate(node_degrees):
+    for i, (node, _) in enumerate(node_degrees):
         chunks[i % n_workers].append(node)
 
     # Remove empty chunks
     chunks = [chunk for chunk in chunks if chunk]
     actual_workers = len(chunks)
 
-    # Total progress bar
     total_pbar = tqdm(
         total=len(nodes), desc=f"Clustering {network_name}", position=0, leave=True
     )
 
-    # Prepare arguments for workers
     worker_args = [(chunk, dok, i, 0) for i, chunk in enumerate(chunks)]
 
     print(
@@ -173,11 +170,9 @@ def calculate_clustering_coefficients_parallel(dok, n_workers=None, network_name
     print(f"   Load distribution: {[len(chunk) for chunk in chunks]} nodes per worker")
 
     def update_callback(result):
-        # Update total progress when a worker completes
         total_pbar.update(len(result))
 
     with mp.Pool(actual_workers) as pool:
-        # Use map_async to get callbacks
         async_results = []
         for args in worker_args:
             async_results.append(
@@ -199,46 +194,19 @@ def calculate_clustering_coefficients_parallel(dok, n_workers=None, network_name
     return clustering_coeffs
 
 
-def worker_common_neighbors(args):
-    """Worker function for parallel common neighbors calculation - OPTIMIZED"""
-    node_pairs_chunk, dok, worker_id, total_position = args
-    local_results = []
-
-    # Worker progress bar with offset position
-    pbar = tqdm(
-        node_pairs_chunk,
-        desc=f"Worker {worker_id:02d} CN",
-        position=total_position + worker_id + 1,
-        leave=False,
-    )
-
-    for node1, node2 in pbar:
-        # Use DoK structure directly for faster set operations
-        neighbors1 = set(dok.get(node1, {}).keys())
-        neighbors2 = set(dok.get(node2, {}).keys())
-
-        # Calculate common neighbors (exclude the nodes themselves)
-        common_neighbors = neighbors1 & neighbors2
-        common_neighbors.discard(node1)  # Remove node1 if present
-        common_neighbors.discard(node2)  # Remove node2 if present
-        common_count = len(common_neighbors)
-
-        local_results.append((node1, node2, common_count))
-
-    pbar.close()
-    return local_results
-
-
 def worker_common_neighbors_edges(args):
     """Worker function for parallel common neighbors calculation on edges"""
     edge_chunk, dok, worker_id, total_position = args
     local_results = []
+
     pbar = tqdm(
         edge_chunk,
         desc=f"Worker {worker_id:02d} CN",
         position=total_position + worker_id + 1,
         leave=False,
     )
+
+    # Process each edge in the chunk, we do intersection of neighbors and remove the nodes themselves
     for node1, node2 in pbar:
         neighbors1 = set(dok.get(node1, {}).keys())
         neighbors2 = set(dok.get(node2, {}).keys())
@@ -247,16 +215,13 @@ def worker_common_neighbors_edges(args):
         common_neighbors.discard(node2)
         common_count = len(common_neighbors)
         local_results.append((node1, node2, common_count))
+
     pbar.close()
     return local_results
 
 
-def calculate_common_neighbors_parallel(
-    dok,
-    n_workers=None,
-    network_name="",
-):
-    """Calculate common neighbors for all edges (not all pairs) - FAST and NO SAMPLING"""
+def calculate_common_neighbors_parallel(dok, n_workers=None, network_name=""):
+    """Calculate common neighbors for all edges (not all pairs)"""
     if n_workers is None:
         n_workers = min(mp.cpu_count(), 8)
 
@@ -269,9 +234,7 @@ def calculate_common_neighbors_parallel(
 
     total_edges = len(edges)
     print(f"Starting common neighbors calculation with {n_workers} workers...")
-    print(
-        f"   Processing {total_edges} edges (all directly connected pairs, no sampling)"
-    )
+    print(f"   Processing {total_edges} edges (all directly connected pairs)")
 
     chunk_size = max(1, total_edges // n_workers)
     chunks = [edges[i : i + chunk_size] for i in range(0, total_edges, chunk_size)]
@@ -299,6 +262,7 @@ def calculate_common_neighbors_parallel(
                 )
             )
         results = [ar.get() for ar in async_results]
+
     total_pbar.close()
     for result in results:
         all_results.extend(result)
@@ -355,7 +319,6 @@ def plot_degree_distribution(degrees, network_name):
 
 def plot_clustering_degree_correlation(degrees, clustering_coeffs, network_name):
     """Plot clustering coefficient vs degree in log-log scale"""
-    # Group by degree and calculate average clustering coefficient
     degree_clustering = {}
     for node in degrees:
         degree = degrees[node]
@@ -364,7 +327,6 @@ def plot_clustering_degree_correlation(degrees, clustering_coeffs, network_name)
             degree_clustering[degree] = []
         degree_clustering[degree].append(cc)
 
-    # Calculate averages
     avg_clustering = {
         degree: np.mean(ccs)
         for degree, ccs in degree_clustering.items()
@@ -395,7 +357,6 @@ def analyze_network(dok, network_name):
     print(f"ANALYZING {network_name.upper()} NETWORK")
     print(f"{'='*60}")
 
-    # Calculate some network statistics first
     total_edges = sum(len(neighbors) for neighbors in dok.values()) // 2
     degree_stats = [len(neighbors) for neighbors in dok.values()]
     max_degree = max(degree_stats)
@@ -415,27 +376,24 @@ def analyze_network(dok, network_name):
     degrees_df = load_from_csv(degrees_file)
 
     if degrees_df is not None:
-        print("   ✓ Loaded degrees from cache")
+        print("   Loaded degrees from cache")
         degrees = dict(zip(degrees_df["node"], degrees_df["degree"]))
     else:
         degrees = calculate_degrees(dok)
         save_to_csv(degrees, degrees_file, ["node", "degree"])
-        print("   ✓ Degrees calculated and saved")
+        print("   Degrees calculated and saved")
 
     degree_time = time.time() - start_time
-
-    # Degree statistics
     degree_values = list(degrees.values())
     avg_degree = np.mean(degree_values)
     max_degree = max(degree_values)
 
     print(f"   Time: {degree_time:.2f}s | Avg: {avg_degree:.2f} | Max: {max_degree}")
 
-    # Plot degree distribution
     plot_degree_distribution(degrees, network_name)
-    print("   ✓ Degree distribution plot saved")
+    print("   Degree distribution plot saved")
 
-    # Clustering coefficient analysis - OPTIMIZED
+    # Clustering coefficient analysis
     print("\n2. Calculating clustering coefficients...")
     start_time = time.time()
 
@@ -443,33 +401,29 @@ def analyze_network(dok, network_name):
     clustering_df = load_from_csv(clustering_file)
 
     if clustering_df is not None:
-        print("   ✓ Loaded clustering coefficients from cache")
+        print("   Loaded clustering coefficients from cache")
         clustering_coeffs = dict(
             zip(clustering_df["node"], clustering_df["clustering_coefficient"])
         )
     else:
-        # Use optimized calculation
         clustering_coeffs = calculate_clustering_coefficients_parallel(
             dok, network_name=network_name
         )
         save_to_csv(
             clustering_coeffs, clustering_file, ["node", "clustering_coefficient"]
         )
-        print("   ✓ Clustering coefficients calculated and saved")
+        print("   Clustering coefficients calculated and saved")
 
     clustering_time = time.time() - start_time
-
-    # Clustering statistics
     clustering_values = list(clustering_coeffs.values())
     avg_clustering = np.mean(clustering_values)
 
     print(f"   Time: {clustering_time:.2f}s | Avg clustering: {avg_clustering:.4f}")
 
-    # Plot clustering vs degree
     plot_clustering_degree_correlation(degrees, clustering_coeffs, network_name)
-    print("   ✓ Clustering-degree correlation plot saved")
+    print("   Clustering-degree correlation plot saved")
 
-    # Common neighbors analysis - EDGE-BASED
+    # Common neighbors analysis
     print("\n3. Calculating common neighbors...")
     start_time = time.time()
 
@@ -477,7 +431,7 @@ def analyze_network(dok, network_name):
     common_neighbors_df = load_from_csv(common_neighbors_file)
 
     if common_neighbors_df is not None:
-        print("   ✓ Loaded common neighbors from cache")
+        print("   Loaded common neighbors from cache")
         common_neighbors_data = common_neighbors_df.values.tolist()
     else:
         common_neighbors_data = calculate_common_neighbors_parallel(
@@ -488,11 +442,10 @@ def analyze_network(dok, network_name):
             common_neighbors_file,
             ["node1", "node2", "common_neighbors"],
         )
-        print("   ✓ Common neighbors calculated and saved")
+        print("   Common neighbors calculated and saved")
 
     common_neighbors_time = time.time() - start_time
 
-    # Common neighbors statistics
     if common_neighbors_data:
         common_counts = [row[2] for row in common_neighbors_data]
         avg_common = np.mean(common_counts)
@@ -504,8 +457,7 @@ def analyze_network(dok, network_name):
     print(
         f"   Time: {common_neighbors_time:.2f}s | Avg: {avg_common:.2f} | Max: {max_common}"
     )
-
-    print(f"\n✓ {network_name} analysis completed!")
+    print(f"\n{network_name} analysis completed!")
 
     return {
         "network": network_name,
@@ -529,33 +481,29 @@ def process_single_dataset(data_info):
     print(f"PROCESSING {network_name.upper()} DATASET")
     print(f"{'='*80}")
 
-    # Load data
     print(f"Loading {network_name} data from {data_path}...")
     start_load = time.time()
 
     if loader_func:
-        # Special processing for protein data
         raw_data = load_data(data_path)
         processed_data, _ = loader_func(raw_data)
         dok = create_dictionary_of_keys(processed_data)
     else:
-        # Standard processing
         raw_data = load_data(data_path)
         dok = create_dictionary_of_keys(raw_data)
 
     load_time = time.time() - start_load
-    print(f"✓ {network_name}: {len(dok)} nodes loaded in {load_time:.2f}s")
+    print(f"{network_name}: {len(dok)} nodes loaded in {load_time:.2f}s")
 
-    # Analyze the dataset
     results = analyze_network(dok, network_name)
 
-    # Clean up memory immediately
+    # Clean up memory
     del dok
     del raw_data
     if "processed_data" in locals():
         del processed_data
 
-    print(f"✓ {network_name} processing completed and memory freed")
+    print(f"{network_name} processing completed and memory freed")
     return results
 
 
@@ -596,9 +544,6 @@ def main():
 
         print(f"✓ {network_name} completed ({i}/{len(datasets_info)})")
 
-        # Force garbage collection
-        import gc
-
         gc.collect()
 
     total_time = time.time() - total_start_time
@@ -625,11 +570,11 @@ def main():
             print(f"\n{result['network']} Network:")
             print(f"  Nodes: {result['nodes']}")
             print(
-                f"  Avg/Max Degree: {result['avg_degree']:.2f}/{result['max_degree']}"
+                f"  Avg/Max Degree: {result['avg_degree']:.2f} / {result['max_degree']}"
             )
             print(f"  Avg Clustering: {result['avg_clustering']:.4f}")
             print(
-                f"  Avg/Max Common Neighbors: {result['avg_common_neighbors']:.2f}/{result['max_common_neighbors']}"
+                f"  Avg/Max Common Neighbors: {result['avg_common_neighbors']:.2f} / {result['max_common_neighbors']}"
             )
             total_comp_time = (
                 result["degree_time"]
@@ -638,10 +583,10 @@ def main():
             )
             print(f"  Total computation time: {total_comp_time:.2f}s")
 
-        print(f"\n🎉 Total analysis time: {total_time:.2f}s")
+        print(f"\n Total analysis time: {total_time:.2f}s")
         print("=" * 80)
     else:
-        print("\n❌ No datasets were successfully processed!")
+        print("\n No datasets were successfully processed!")
 
 
 if __name__ == "__main__":
