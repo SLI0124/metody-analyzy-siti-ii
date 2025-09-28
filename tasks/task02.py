@@ -1,8 +1,10 @@
 from pathlib import Path
 import itertools
 from collections import defaultdict
+import matplotlib.pyplot as plt
 
 DIR_PATH = Path("../data/coauth-DBLP/")
+RESULTS_DIR = Path("../results/task02")
 
 
 def load_file(filename):
@@ -112,6 +114,37 @@ def parse_node_labels(node_labels_content):
     return node_labels
 
 
+def plot_statistics(
+    years,
+    avg_degrees,
+    avg_weighted_degrees,
+    avg_clusterings,
+):
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 3, 1)
+    plt.plot(years, avg_degrees, marker="o")
+    plt.title("Average Degree Over Time")
+    plt.xlabel("Year")
+    plt.ylabel("Average Degree")
+
+    plt.subplot(1, 3, 2)
+    plt.plot(years, avg_weighted_degrees, marker="o", color="orange")
+    plt.title("Average Weighted Degree Over Time")
+    plt.xlabel("Year")
+    plt.ylabel("Average Weighted Degree")
+
+    plt.subplot(1, 3, 3)
+    plt.plot(years, avg_clusterings, marker="o", color="green")
+    plt.title("Average Clustering Coefficient Over Time")
+    plt.xlabel("Year")
+    plt.ylabel("Average Clustering Coefficient")
+
+    plt.tight_layout()
+    plt.savefig(RESULTS_DIR / "network_stats_over_time.png")
+
+
 def main():
     node_labels_path = DIR_PATH / "coauth-DBLP-node-labels.txt"
     node_labels_content = load_file(node_labels_path)
@@ -131,12 +164,21 @@ def main():
     frames = split_into_frames_by_timestamp(simplices)
     print(f"Number of frames (unique timestamps): {len(frames)}")
 
+    years = []
+    avg_degrees = []
+    avg_weighted_degrees = []
+    avg_clusterings = []
+
     for i, ts in enumerate(sorted(frames.keys()), 1):
         frame = frames[ts]
         edge_weights = build_edge_weights(frame)
         avg_deg = compute_avg_degree(edge_weights)
         avg_wdeg = compute_avg_weighted_degree(edge_weights)
         avg_clust = compute_avg_clustering_coefficient(frame)
+        years.append(ts)
+        avg_degrees.append(avg_deg)
+        avg_weighted_degrees.append(avg_wdeg)
+        avg_clusterings.append(avg_clust)
         print(
             f"{i}/{len(frames)} Frame {ts}: Avg degree={avg_deg:.2f}, Avg weighted degree={avg_wdeg:.2f}, Avg clustering={avg_clust:.4f}"
         )
@@ -155,6 +197,13 @@ def main():
         print("Year of highest stats:", best_year)
     else:
         print("No simplex found.")
+
+    plot_statistics(
+        years,
+        avg_degrees,
+        avg_weighted_degrees,
+        avg_clusterings,
+    )
 
 
 if __name__ == "__main__":
