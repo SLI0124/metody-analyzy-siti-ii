@@ -45,7 +45,7 @@ def build_edge_weights(simplices):
 
 def compute_avg_degree(edge_weights):
     node_degree = defaultdict(int)
-    for (u, v), w in edge_weights.items():
+    for (u, v), _ in edge_weights.items():
         node_degree[u] += 1
         node_degree[v] += 1
     if not node_degree:
@@ -64,15 +64,14 @@ def compute_avg_weighted_degree(edge_weights):
 
 
 def compute_avg_clustering_coefficient(simplices):
-    # Build adjacency
     adj = defaultdict(set)
     for s in simplices:
         for u, v in itertools.combinations(s["nodes"], 2):
             adj[u].add(v)
             adj[v].add(u)
+
     clustering = []
-    for node in adj:
-        neighbors = adj[node]
+    for _, neighbors in adj.items():
         if len(neighbors) < 2:
             clustering.append(0)
             continue
@@ -82,8 +81,10 @@ def compute_avg_clustering_coefficient(simplices):
                 links += 1
         possible = len(neighbors) * (len(neighbors) - 1) / 2
         clustering.append(links / possible if possible > 0 else 0)
+
     if not clustering:
         return 0
+
     return sum(clustering) / len(clustering)
 
 
@@ -125,28 +126,29 @@ def plot_statistics(
     max_avg_edge_weights=None,
 ):
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    n_plots = 4 if max_avg_edge_weights is not None else 3
+    plt.figure(figsize=(16, 4) if n_plots == 4 else (12, 4))
 
-    plt.figure(figsize=(16, 4) if max_avg_edge_weights is not None else (12, 4))
-    plt.subplot(1, 4 if max_avg_edge_weights is not None else 3, 1)
+    plt.subplot(1, n_plots, 1)
     plt.plot(years, avg_degrees, marker="o")
     plt.title(f"{title_prefix}Average Degree")
     plt.xlabel("Year")
     plt.ylabel("Average Degree")
 
-    plt.subplot(1, 4 if max_avg_edge_weights is not None else 3, 2)
+    plt.subplot(1, n_plots, 2)
     plt.plot(years, avg_weighted_degrees, marker="o", color="orange")
     plt.title(f"{title_prefix}Average Weighted Degree")
     plt.xlabel("Year")
     plt.ylabel("Average Weighted Degree")
 
-    plt.subplot(1, 4 if max_avg_edge_weights is not None else 3, 3)
+    plt.subplot(1, n_plots, 3)
     plt.plot(years, avg_clusterings, marker="o", color="green")
     plt.title(f"{title_prefix}Average Clustering Coefficient")
     plt.xlabel("Year")
     plt.ylabel("Average Clustering Coefficient")
 
     if max_avg_edge_weights is not None:
-        plt.subplot(1, 4, 4)
+        plt.subplot(1, n_plots, 4)
         plt.plot(years, max_avg_edge_weights, marker="o", color="red")
         plt.title(f"{title_prefix}Max Avg Edge Weight")
         plt.xlabel("Year")
@@ -174,11 +176,9 @@ def compute_max_avg_edge_weight_over_time(frames, cumulative=False):
     years = []
     all_simplices = []
     for ts in sorted(frames.keys()):
+        simplices = all_simplices + frames[ts] if cumulative else frames[ts]
         if cumulative:
             all_simplices.extend(frames[ts])
-            simplices = all_simplices
-        else:
-            simplices = frames[ts]
         edge_weights = build_edge_weights(simplices)
         max_avg = 0
         for s in simplices:
@@ -218,7 +218,7 @@ def compute_cumulative_statistics_over_time(frames):
             f"Avg weighted degree={avg_wdeg:.2f}, "
             f"Avg clustering={avg_clust:.4f}"
         )
-    # Save to CSV
+
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(
         {
@@ -267,7 +267,7 @@ def compute_yearly_statistics(frames):
             f"Avg weighted degree={avg_wdeg:.2f}, "
             f"Avg clustering={avg_clust:.4f}"
         )
-    # Save to CSV
+
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(
         {
@@ -297,27 +297,19 @@ def load_yearly_statistics_from_csv():
 
 def main():
     node_labels_path = DIR_PATH / "coauth-DBLP-node-labels.txt"
-    node_labels_content = load_file(node_labels_path)
-
     nverts_path = DIR_PATH / "coauth-DBLP-nverts.txt"
-    nverts_content = load_file(nverts_path)
-
     simplices_path = DIR_PATH / "coauth-DBLP-simplices.txt"
-    simplices_content = load_file(simplices_path)
-
     times_path = DIR_PATH / "coauth-DBLP-times.txt"
+
+    node_labels_content = load_file(node_labels_path)
+    nverts_content = load_file(nverts_path)
+    simplices_content = load_file(simplices_path)
     times_content = load_file(times_path)
 
     node_labels = parse_node_labels(node_labels_content)
-
     simplices = parse_simplices(nverts_content, simplices_content, times_content)
     frames = split_into_frames_by_timestamp(simplices)
     print(f"Number of frames (unique timestamps): {len(frames)}")
-
-    years = []
-    avg_degrees = []
-    avg_weighted_degrees = []
-    avg_clusterings = []
 
     # Try to load yearly statistics from CSV, else compute and save
     loaded_yearly = load_yearly_statistics_from_csv()
@@ -328,7 +320,6 @@ def main():
             compute_yearly_statistics(frames)
         )
 
-    # Print per-year statistics
     print("\nYearly statistics for each frame:")
     for i, ts in enumerate(years):
         print(
@@ -342,6 +333,7 @@ def main():
     best_simplex, best_avg = find_simplex_highest_avg_edge_weight(
         simplices, all_edge_weights
     )
+    
     if best_simplex:
         node_names = [node_labels.get(n, str(n)) for n in best_simplex["nodes"]]
         best_year = best_simplex["time"]
@@ -360,7 +352,7 @@ def main():
         years_max,
         max_avg_edge_weights_yearly,
         filename="max_avg_edge_weight_yearly.png",
-        title_prefix="Yearly "
+        title_prefix="Yearly ",
     )
 
     plot_statistics(
@@ -389,6 +381,7 @@ def main():
             cumulative_avg_weighted_degrees,
             cumulative_avg_clusterings,
         ) = compute_cumulative_statistics_over_time(frames)
+
     print("\nCumulative statistics up to each year:")
     for i, ts in enumerate(cumulative_years):
         print(
@@ -398,17 +391,16 @@ def main():
         )
 
     # Compute max avg edge weight for cumulative years
-    cumulative_years_max, max_avg_edge_weights_cumulative = compute_max_avg_edge_weight_over_time(
-        frames, cumulative=True
+    cumulative_years_max, max_avg_edge_weights_cumulative = (
+        compute_max_avg_edge_weight_over_time(frames, cumulative=True)
     )
     plot_max_avg_edge_weight(
         cumulative_years_max,
         max_avg_edge_weights_cumulative,
         filename="max_avg_edge_weight_cumulative.png",
-        title_prefix="Cumulative "
+        title_prefix="Cumulative ",
     )
 
-    # Save cumulative statistics plot
     plot_statistics(
         cumulative_years,
         cumulative_avg_degrees,
