@@ -120,30 +120,80 @@ def plot_statistics(
     avg_degrees,
     avg_weighted_degrees,
     avg_clusterings,
+    filename="network_stats_over_time.png",
+    title_prefix="",
+    max_avg_edge_weights=None,
 ):
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    plt.figure(figsize=(12, 4))
-    plt.subplot(1, 3, 1)
+    plt.figure(figsize=(16, 4) if max_avg_edge_weights is not None else (12, 4))
+    plt.subplot(1, 4 if max_avg_edge_weights is not None else 3, 1)
     plt.plot(years, avg_degrees, marker="o")
-    plt.title("Average Degree Over Time")
+    plt.title(f"{title_prefix}Average Degree")
     plt.xlabel("Year")
     plt.ylabel("Average Degree")
 
-    plt.subplot(1, 3, 2)
+    plt.subplot(1, 4 if max_avg_edge_weights is not None else 3, 2)
     plt.plot(years, avg_weighted_degrees, marker="o", color="orange")
-    plt.title("Average Weighted Degree Over Time")
+    plt.title(f"{title_prefix}Average Weighted Degree")
     plt.xlabel("Year")
     plt.ylabel("Average Weighted Degree")
 
-    plt.subplot(1, 3, 3)
+    plt.subplot(1, 4 if max_avg_edge_weights is not None else 3, 3)
     plt.plot(years, avg_clusterings, marker="o", color="green")
-    plt.title("Average Clustering Coefficient Over Time")
+    plt.title(f"{title_prefix}Average Clustering Coefficient")
     plt.xlabel("Year")
     plt.ylabel("Average Clustering Coefficient")
 
+    if max_avg_edge_weights is not None:
+        plt.subplot(1, 4, 4)
+        plt.plot(years, max_avg_edge_weights, marker="o", color="red")
+        plt.title(f"{title_prefix}Max Avg Edge Weight")
+        plt.xlabel("Year")
+        plt.ylabel("Max Avg Edge Weight")
+
     plt.tight_layout()
-    plt.savefig(RESULTS_DIR / "network_stats_over_time.png")
+    plt.savefig(RESULTS_DIR / filename)
+    plt.close()
+
+
+def plot_max_avg_edge_weight(years, max_avg_edge_weights, filename, title_prefix=""):
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    plt.figure(figsize=(8, 4))
+    plt.plot(years, max_avg_edge_weights, marker="o", color="red")
+    plt.title(f"{title_prefix}Max Avg Edge Weight Over Time")
+    plt.xlabel("Year")
+    plt.ylabel("Max Avg Edge Weight")
+    plt.tight_layout()
+    plt.savefig(RESULTS_DIR / filename)
+    plt.close()
+
+
+def compute_max_avg_edge_weight_over_time(frames, cumulative=False):
+    max_avg_weights = []
+    years = []
+    all_simplices = []
+    for ts in sorted(frames.keys()):
+        if cumulative:
+            all_simplices.extend(frames[ts])
+            simplices = all_simplices
+        else:
+            simplices = frames[ts]
+        edge_weights = build_edge_weights(simplices)
+        max_avg = 0
+        for s in simplices:
+            edges = [
+                tuple(sorted((u, v)))
+                for u, v in itertools.combinations(sorted(s["nodes"]), 2)
+            ]
+            if not edges:
+                continue
+            avg_weight = sum(edge_weights[e] for e in edges) / len(edges)
+            if avg_weight > max_avg:
+                max_avg = avg_weight
+        max_avg_weights.append(max_avg)
+        years.append(ts)
+    return years, max_avg_weights
 
 
 def compute_cumulative_statistics_over_time(frames):
@@ -302,11 +352,25 @@ def main():
     else:
         print("No simplex found.")
 
+    # Compute max avg edge weight per year (frame)
+    years_max, max_avg_edge_weights_yearly = compute_max_avg_edge_weight_over_time(
+        frames, cumulative=False
+    )
+    plot_max_avg_edge_weight(
+        years_max,
+        max_avg_edge_weights_yearly,
+        filename="max_avg_edge_weight_yearly.png",
+        title_prefix="Yearly "
+    )
+
     plot_statistics(
         years,
         avg_degrees,
         avg_weighted_degrees,
         avg_clusterings,
+        filename="network_stats_yearly.png",
+        title_prefix="Yearly ",
+        max_avg_edge_weights=max_avg_edge_weights_yearly,
     )
 
     # Try to load cumulative statistics from CSV, else compute and save
@@ -332,6 +396,28 @@ def main():
             f"Avg weighted degree={cumulative_avg_weighted_degrees[i]:.2f}, "
             f"Avg clustering={cumulative_avg_clusterings[i]:.4f}"
         )
+
+    # Compute max avg edge weight for cumulative years
+    cumulative_years_max, max_avg_edge_weights_cumulative = compute_max_avg_edge_weight_over_time(
+        frames, cumulative=True
+    )
+    plot_max_avg_edge_weight(
+        cumulative_years_max,
+        max_avg_edge_weights_cumulative,
+        filename="max_avg_edge_weight_cumulative.png",
+        title_prefix="Cumulative "
+    )
+
+    # Save cumulative statistics plot
+    plot_statistics(
+        cumulative_years,
+        cumulative_avg_degrees,
+        cumulative_avg_weighted_degrees,
+        cumulative_avg_clusterings,
+        filename="network_stats_cumulative.png",
+        title_prefix="Cumulative ",
+        max_avg_edge_weights=max_avg_edge_weights_cumulative,
+    )
 
 
 if __name__ == "__main__":
