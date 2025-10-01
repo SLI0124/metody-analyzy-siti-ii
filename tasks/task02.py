@@ -145,6 +145,31 @@ def plot_statistics(
     plt.savefig(RESULTS_DIR / "network_stats_over_time.png")
 
 
+def compute_cumulative_statistics_over_time(frames):
+    years = []
+    avg_degrees = []
+    avg_weighted_degrees = []
+    avg_clusterings = []
+    all_simplices = []
+    print("Calculating cumulative statistics:")
+    for i, ts in enumerate(sorted(frames.keys()), 1):
+        all_simplices.extend(frames[ts])
+        edge_weights = build_edge_weights(all_simplices)
+        avg_deg = compute_avg_degree(edge_weights)
+        avg_wdeg = compute_avg_weighted_degree(edge_weights)
+        avg_clust = compute_avg_clustering_coefficient(all_simplices)
+        years.append(ts)
+        avg_degrees.append(avg_deg)
+        avg_weighted_degrees.append(avg_wdeg)
+        avg_clusterings.append(avg_clust)
+        print(
+            f"{i}/{len(frames)} Up to {ts}: Avg degree={avg_deg:.2f}, "
+            f"Avg weighted degree={avg_wdeg:.2f}, "
+            f"Avg clustering={avg_clust:.4f}"
+        )
+    return years, avg_degrees, avg_weighted_degrees, avg_clusterings
+
+
 def main():
     node_labels_path = DIR_PATH / "coauth-DBLP-node-labels.txt"
     node_labels_content = load_file(node_labels_path)
@@ -204,6 +229,20 @@ def main():
         avg_weighted_degrees,
         avg_clusterings,
     )
+
+    (
+        cumulative_years,
+        cumulative_avg_degrees,
+        cumulative_avg_weighted_degrees,
+        cumulative_avg_clusterings,
+    ) = compute_cumulative_statistics_over_time(frames)
+    print("\nCumulative statistics up to each year:")
+    for i, ts in enumerate(cumulative_years):
+        print(
+            f"Up to {ts}: Avg degree={cumulative_avg_degrees[i]:.2f}, "
+            f"Avg weighted degree={cumulative_avg_weighted_degrees[i]:.2f}, "
+            f"Avg clustering={cumulative_avg_clusterings[i]:.4f}"
+        )
 
 
 if __name__ == "__main__":
