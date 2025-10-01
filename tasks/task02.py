@@ -2,6 +2,7 @@ from pathlib import Path
 import itertools
 from collections import defaultdict
 import matplotlib.pyplot as plt
+import pandas as pd
 
 DIR_PATH = Path("../data/coauth-DBLP/")
 RESULTS_DIR = Path("../results/task02")
@@ -167,7 +168,81 @@ def compute_cumulative_statistics_over_time(frames):
             f"Avg weighted degree={avg_wdeg:.2f}, "
             f"Avg clustering={avg_clust:.4f}"
         )
+    # Save to CSV
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(
+        {
+            "year": years,
+            "avg_degree": avg_degrees,
+            "avg_weighted_degree": avg_weighted_degrees,
+            "avg_clustering": avg_clusterings,
+        }
+    )
+    df.to_csv(RESULTS_DIR / "cumulative_stats.csv", index=False)
     return years, avg_degrees, avg_weighted_degrees, avg_clusterings
+
+
+def load_cumulative_statistics_from_csv():
+    csv_path = RESULTS_DIR / "cumulative_stats.csv"
+    if csv_path.exists():
+        df = pd.read_csv(csv_path)
+        print(f"Loaded cumulative statistics from {csv_path}")
+        return (
+            df["year"].tolist(),
+            df["avg_degree"].tolist(),
+            df["avg_weighted_degree"].tolist(),
+            df["avg_clustering"].tolist(),
+        )
+    return None
+
+
+def compute_yearly_statistics(frames):
+    years = []
+    avg_degrees = []
+    avg_weighted_degrees = []
+    avg_clusterings = []
+    print("Calculating yearly statistics:")
+    for i, ts in enumerate(sorted(frames.keys()), 1):
+        frame = frames[ts]
+        edge_weights = build_edge_weights(frame)
+        avg_deg = compute_avg_degree(edge_weights)
+        avg_wdeg = compute_avg_weighted_degree(edge_weights)
+        avg_clust = compute_avg_clustering_coefficient(frame)
+        years.append(ts)
+        avg_degrees.append(avg_deg)
+        avg_weighted_degrees.append(avg_wdeg)
+        avg_clusterings.append(avg_clust)
+        print(
+            f"{i}/{len(frames)} Frame {ts}: Avg degree={avg_deg:.2f}, "
+            f"Avg weighted degree={avg_wdeg:.2f}, "
+            f"Avg clustering={avg_clust:.4f}"
+        )
+    # Save to CSV
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(
+        {
+            "year": years,
+            "avg_degree": avg_degrees,
+            "avg_weighted_degree": avg_weighted_degrees,
+            "avg_clustering": avg_clusterings,
+        }
+    )
+    df.to_csv(RESULTS_DIR / "yearly_stats.csv", index=False)
+    return years, avg_degrees, avg_weighted_degrees, avg_clusterings
+
+
+def load_yearly_statistics_from_csv():
+    csv_path = RESULTS_DIR / "yearly_stats.csv"
+    if csv_path.exists():
+        df = pd.read_csv(csv_path)
+        print(f"Loaded yearly statistics from {csv_path}")
+        return (
+            df["year"].tolist(),
+            df["avg_degree"].tolist(),
+            df["avg_weighted_degree"].tolist(),
+            df["avg_clustering"].tolist(),
+        )
+    return None
 
 
 def main():
@@ -194,18 +269,22 @@ def main():
     avg_weighted_degrees = []
     avg_clusterings = []
 
-    for i, ts in enumerate(sorted(frames.keys()), 1):
-        frame = frames[ts]
-        edge_weights = build_edge_weights(frame)
-        avg_deg = compute_avg_degree(edge_weights)
-        avg_wdeg = compute_avg_weighted_degree(edge_weights)
-        avg_clust = compute_avg_clustering_coefficient(frame)
-        years.append(ts)
-        avg_degrees.append(avg_deg)
-        avg_weighted_degrees.append(avg_wdeg)
-        avg_clusterings.append(avg_clust)
+    # Try to load yearly statistics from CSV, else compute and save
+    loaded_yearly = load_yearly_statistics_from_csv()
+    if loaded_yearly:
+        years, avg_degrees, avg_weighted_degrees, avg_clusterings = loaded_yearly
+    else:
+        years, avg_degrees, avg_weighted_degrees, avg_clusterings = (
+            compute_yearly_statistics(frames)
+        )
+
+    # Print per-year statistics
+    print("\nYearly statistics for each frame:")
+    for i, ts in enumerate(years):
         print(
-            f"{i}/{len(frames)} Frame {ts}: Avg degree={avg_deg:.2f}, Avg weighted degree={avg_wdeg:.2f}, Avg clustering={avg_clust:.4f}"
+            f"{i+1}/{len(years)} Frame {ts}: Avg degree={avg_degrees[i]:.2f}, "
+            f"Avg weighted degree={avg_weighted_degrees[i]:.2f}, "
+            f"Avg clustering={avg_clusterings[i]:.4f}"
         )
 
     # Find simplex with highest average edge weight (across all data)
@@ -230,12 +309,22 @@ def main():
         avg_clusterings,
     )
 
-    (
-        cumulative_years,
-        cumulative_avg_degrees,
-        cumulative_avg_weighted_degrees,
-        cumulative_avg_clusterings,
-    ) = compute_cumulative_statistics_over_time(frames)
+    # Try to load cumulative statistics from CSV, else compute and save
+    loaded = load_cumulative_statistics_from_csv()
+    if loaded:
+        (
+            cumulative_years,
+            cumulative_avg_degrees,
+            cumulative_avg_weighted_degrees,
+            cumulative_avg_clusterings,
+        ) = loaded
+    else:
+        (
+            cumulative_years,
+            cumulative_avg_degrees,
+            cumulative_avg_weighted_degrees,
+            cumulative_avg_clusterings,
+        ) = compute_cumulative_statistics_over_time(frames)
     print("\nCumulative statistics up to each year:")
     for i, ts in enumerate(cumulative_years):
         print(
