@@ -2,3 +2,4 @@ black
 matplotlib
 networkx
 pandas
+scikit-learn
