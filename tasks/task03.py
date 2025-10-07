@@ -6,6 +6,7 @@ from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.metrics import precision_score, recall_score, f1_score
 import os
 import matplotlib.pyplot as plt
+import pandas as pd
 
 RESULTS_DIR = "../results/task03"
 
@@ -23,10 +24,9 @@ def load_graph(file_path):
         rows = []
         for row in reader:
             rows.append(row)
-            if len(row) >= 2:  # assume edge list: u,v
+            if len(row) >= 2:
                 u, v = row[0], row[1]
                 G.add_edge(u, v)
-
     return G
 
 
@@ -58,14 +58,11 @@ def resource_allocation_index(G, u, v):
 
 
 def cosine_similarity(G, u, v):
-    # Get neighbors as sets
     neighbors_u = set(G.neighbors(u))
     neighbors_v = set(G.neighbors(v))
-    # Compute intersection and lengths
     intersection = len(neighbors_u & neighbors_v)
     len_u = len(neighbors_u)
     len_v = len(neighbors_v)
-    # Avoid division by zero
     if len_u == 0 or len_v == 0:
         return 0.0
     return intersection / (np.sqrt(len_u * len_v))
@@ -82,12 +79,9 @@ def sorensen_index(G, u, v):
 
 
 def car_based_common_neighbors(G, u, v):
-    # Assign a default community to each node if not present
     if not all("community" in G.nodes[n] for n in G.nodes()):
         for idx, node in enumerate(G.nodes()):
-            G.nodes[node]["community"] = (
-                idx % 2
-            )  # Example: assign communities 0 and 1 alternately
+            G.nodes[node]["community"] = idx % 2
     preds = list(nx.cn_soundarajan_hopcroft(G, [(u, v)]))
     return preds[0][2]
 
@@ -101,7 +95,7 @@ def build_dataset(G, similarity_func, n_negatives=None):
 
     if n_negatives is None:
         n_negatives = len(positives)
-    negatives = random.sample(non_edges, n_negatives)
+    negatives = random.sample(non_edges, min(n_negatives, len(non_edges)))
     negatives = [(u, v, 0) for u, v in negatives]
 
     dataset = []
@@ -112,37 +106,8 @@ def build_dataset(G, similarity_func, n_negatives=None):
 
 
 # --------------------------
-# Evaluate with threshold search
+# Evaluate with k-fold
 # --------------------------
-def evaluate_thresholds(dataset):
-    X = np.array([d[0] for d in dataset])
-    y = np.array([d[1] for d in dataset])
-
-    # Split into train/test
-    _, X_test, _, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-
-    # Only use uniform range of thresholds
-    thresholds = np.arange(0.0, 1.05, 0.05)
-
-    results = []
-    for t in thresholds:
-        y_pred = (X_test >= t).astype(int)
-        precision = precision_score(y_test, y_pred, zero_division=0)
-        recall = recall_score(y_test, y_pred, zero_division=0)
-        f1 = f1_score(y_test, y_pred, zero_division=0)
-        results.append(
-            {
-                "threshold": t,
-                "precision": precision,
-                "recall": recall,
-                "f1": f1,
-            }
-        )
-    return results
-
-
 def evaluate_thresholds_kfold(dataset, k):
     X = np.array([d[0] for d in dataset])
     y = np.array([d[1] for d in dataset])
@@ -160,7 +125,7 @@ def evaluate_thresholds_kfold(dataset, k):
             )
             recalls_by_threshold[i] += recall_score(y_test, y_pred, zero_division=0)
             f1s_by_threshold[i] += f1_score(y_test, y_pred, zero_division=0)
-    # Average over folds
+    
     results = []
     for i, t in enumerate(thresholds):
         results.append(
@@ -175,10 +140,42 @@ def evaluate_thresholds_kfold(dataset, k):
 
 
 # --------------------------
+# Compute summary statistics
+# --------------------------
+def compute_summary_stats(results):
+    """Compute min, max, mean, std for each metric across all thresholds"""
+    f1_scores = [r['f1'] for r in results]
+    precision_scores = [r['precision'] for r in results]
+    recall_scores = [r['recall'] for r in results]
+    
+    # Find best threshold based on F1
+    best_idx = np.argmax(f1_scores)
+    best_threshold = results[best_idx]['threshold']
+    
+    return {
+        'f1_min': np.min(f1_scores),
+        'f1_max': np.max(f1_scores),
+        'f1_mean': np.mean(f1_scores),
+        'f1_std': np.std(f1_scores),
+        'precision_min': np.min(precision_scores),
+        'precision_max': np.max(precision_scores),
+        'precision_mean': np.mean(precision_scores),
+        'precision_std': np.std(precision_scores),
+        'recall_min': np.min(recall_scores),
+        'recall_max': np.max(recall_scores),
+        'recall_mean': np.mean(recall_scores),
+        'recall_std': np.std(recall_scores),
+        'best_threshold': best_threshold,
+        'best_f1': results[best_idx]['f1'],
+        'best_precision': results[best_idx]['precision'],
+        'best_recall': results[best_idx]['recall']
+    }
+
+
+# --------------------------
 # Main
 # --------------------------
 def main():
-    # Ensure results directory exists
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     datasets = {
@@ -198,38 +195,84 @@ def main():
         "CAR-based CN": car_based_common_neighbors,
     }
 
+    # Use k=5 as the standard value for detailed analysis
+    OPTIMAL_K = 5
     k_values = [2, 3, 4, 5, 10]
     thresholds = np.arange(0.0, 1.05, 0.05)
-    threshold_labels = [f"{t:.2f}" for t in thresholds]
+    
+    # Store all results for comparison table
+    all_summary_stats = []
 
     for name, path in datasets.items():
         G = load_graph(path)
-        print(
-            f"\nDataset: {name} (nodes={G.number_of_nodes()}, edges={G.number_of_edges()})"
-        )
+        print(f"\n{'='*70}")
+        print(f"Dataset: {name}")
+        print(f"Nodes: {G.number_of_nodes()}, Edges: {G.number_of_edges()}")
+        print(f"{'='*70}")
 
+        # Detailed analysis with optimal k
+        print(f"\n--- DETAILED ANALYSIS (k={OPTIMAL_K}) ---")
+        f1_scores_by_method = {}
+        
+        for method_name, func in methods.items():
+            dataset = build_dataset(G, func)
+            if len(dataset) == 0:
+                print(f"\n{method_name}: WARNING - Empty dataset")
+                continue
+            
+            results = evaluate_thresholds_kfold(dataset, OPTIMAL_K)
+            stats = compute_summary_stats(results)
+            
+            print(f"\n{method_name}:")
+            print(f"  Best F1: {stats['best_f1']:.4f} at threshold {stats['best_threshold']:.2f}")
+            print(f"  F1  → Min: {stats['f1_min']:.4f}, Max: {stats['f1_max']:.4f}, "
+                  f"Mean: {stats['f1_mean']:.4f}, Std: {stats['f1_std']:.4f}")
+            print(f"  Prec→ Min: {stats['precision_min']:.4f}, Max: {stats['precision_max']:.4f}, "
+                  f"Mean: {stats['precision_mean']:.4f}, Std: {stats['precision_std']:.4f}")
+            print(f"  Rec → Min: {stats['recall_min']:.4f}, Max: {stats['recall_max']:.4f}, "
+                  f"Mean: {stats['recall_mean']:.4f}, Std: {stats['recall_std']:.4f}")
+            
+            f1_scores_by_method[method_name] = [res["f1"] for res in results]
+            
+            # Store for summary table
+            all_summary_stats.append({
+                'Dataset': name,
+                'Method': method_name,
+                'Best_F1': stats['best_f1'],
+                'Best_Threshold': stats['best_threshold'],
+                'F1_Mean': stats['f1_mean'],
+                'F1_Std': stats['f1_std']
+            })
+        
+        # Plot F1 scores for optimal k
+        plt.figure(figsize=(12, 7))
+        for method_name, f1s in f1_scores_by_method.items():
+            plt.plot(thresholds, f1s, marker='o', label=method_name, linewidth=2)
+        plt.title(f"F1 Score vs Threshold for {name} (k={OPTIMAL_K})", fontsize=14, fontweight='bold')
+        plt.xlabel("Threshold", fontsize=12)
+        plt.ylabel("F1 Score", fontsize=12)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        fname = f"{name.lower().replace(' ', '_')}_f1_vs_threshold_k{OPTIMAL_K}.png"
+        plt.savefig(os.path.join(RESULTS_DIR, fname), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Generate plots for all k values
         for k in k_values:
-            print(f"\n  K-Fold: k={k}")
-            f1_scores_by_method = {}
+            if k == OPTIMAL_K:
+                continue  # Already generated above
+            f1_scores_by_method_k = {}
             for method_name, func in methods.items():
                 dataset = build_dataset(G, func)
                 if len(dataset) == 0:
-                    print(
-                        f"    {method_name}: WARNING - No data to evaluate (empty dataset)."
-                    )
                     continue
-                print(f"    {method_name}:")
                 results = evaluate_thresholds_kfold(dataset, k)
-                for res in results:
-                    print(f"      Threshold ({res['threshold']:.3f}):")
-                    print(
-                        f"        Precision={res['precision']:.3f}, Recall={res['recall']:.3f}, F1={res['f1']:.3f}"
-                    )
-                f1_scores_by_method[method_name] = [res["f1"] for res in results]
-            # Plot F1 scores for all methods for this dataset and k
+                f1_scores_by_method_k[method_name] = [res["f1"] for res in results]
+            
             plt.figure(figsize=(10, 6))
-            for method_name, f1s in f1_scores_by_method.items():
-                plt.plot(thresholds, f1s, marker="o", label=method_name)
+            for method_name, f1s in f1_scores_by_method_k.items():
+                plt.plot(thresholds, f1s, marker='o', label=method_name)
             plt.title(f"F1 Score vs Threshold for {name} (k={k})")
             plt.xlabel("Threshold")
             plt.ylabel("F1 Score")
@@ -238,6 +281,18 @@ def main():
             fname = f"{name.lower().replace(' ', '_')}_f1_vs_threshold_k{k}.png"
             plt.savefig(os.path.join(RESULTS_DIR, fname))
             plt.close()
+
+    # Create summary comparison table
+    print(f"\n\n{'='*70}")
+    print("SUMMARY COMPARISON TABLE (k=5)")
+    print(f"{'='*70}")
+    df = pd.DataFrame(all_summary_stats)
+    df_sorted = df.sort_values(['Dataset', 'Best_F1'], ascending=[True, False])
+    print(df_sorted.to_string(index=False))
+    
+    # Save to CSV
+    df_sorted.to_csv(os.path.join(RESULTS_DIR, 'summary_statistics.csv'), index=False)
+    print(f"\nSummary saved to: {os.path.join(RESULTS_DIR, 'summary_statistics.csv')}")
 
 
 if __name__ == "__main__":
