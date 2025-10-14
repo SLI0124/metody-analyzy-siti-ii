@@ -27,7 +27,7 @@ def save_edge_list_csv(G, prefix, outdir):
         for node in G.nodes():
             degree = G.degree(node)
             clustering = nx.clustering(G, node)
-            writer.writerow([node, f"Node_{node}", degree, clustering])
+            writer.writerow([node, node, degree, clustering])
 
 
 def save_analysis_csv(results):
@@ -249,12 +249,19 @@ def plot_model_variants_degree_distributions(all_results, outdir, model_names):
         for variant in ["original", "internal", "deletion"]:
             label = f"{model_name} {variant}"
             for res in all_results:
-                if res["name"] == variant and model_name in res.get("source", model_name):
+                if res["name"] == variant and model_name in res.get(
+                    "source", model_name
+                ):
                     degrees = list(res["degree_dist"].keys())
                     counts = list(res["degree_dist"].values())
                     if len(degrees) > 0 and len(counts) > 0:
                         plt.loglog(
-                            degrees, counts, marker="o", linestyle="", alpha=0.7, label=variant
+                            degrees,
+                            counts,
+                            marker="o",
+                            linestyle="",
+                            alpha=0.7,
+                            label=variant,
                         )
         plt.xlabel("Degree (k)")
         plt.ylabel("Count")
@@ -272,7 +279,9 @@ def plot_model_variants_degree_distributions(all_results, outdir, model_names):
 def plot_model_trend_curves(all_results, outdir, model_names):
     for model_name in model_names:
         plt.figure(figsize=(10, 6))
-        for variant, color in zip(["original", "internal", "deletion"], ["blue", "green", "red"]):
+        for variant, color in zip(
+            ["original", "internal", "deletion"], ["blue", "green", "red"]
+        ):
             for res in all_results:
                 if res["name"] == variant and res.get("source", "") == model_name:
                     degrees = np.array(sorted(res["degree_dist"].keys()))
