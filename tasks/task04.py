@@ -15,13 +15,13 @@ def ensure_results_dir(subdir=None):
     return path
 
 
-def save_edge_list_csv(G, model_name, outdir):
-    with open(os.path.join(outdir, f"{model_name}_edges.csv"), "w", newline="") as f:
+def save_edge_list_csv(G, prefix, outdir):
+    with open(os.path.join(outdir, f"{prefix}_edges.csv"), "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["Source", "Target"])
         for u, v in G.edges():
             writer.writerow([u, v])
-    with open(os.path.join(outdir, f"{model_name}_nodes.csv"), "w", newline="") as f:
+    with open(os.path.join(outdir, f"{prefix}_nodes.csv"), "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["Id", "Label", "Degree", "ClusteringCoefficient"])
         for node in G.nodes():
@@ -62,17 +62,17 @@ def save_analysis_csv(results):
             )
 
 
-def plot_degree_distribution(degree_dist, name, outdir):
+def plot_degree_distribution(degree_dist, prefix, plots_dir):
     degrees = list(degree_dist.keys())
     counts = list(degree_dist.values())
     plt.figure(figsize=(10, 6))
     plt.loglog(degrees, counts, "o", alpha=0.6, markersize=6)
     plt.xlabel("Degree (k)", fontsize=12)
     plt.ylabel("Count", fontsize=12)
-    plt.title(f"Degree Distribution - {name}", fontsize=14)
+    plt.title(f"Degree Distribution - {prefix}", fontsize=14)
     plt.grid(True, alpha=0.3)
     plt.savefig(
-        os.path.join(outdir, f"{name}_degree_dist.png"), dpi=150, bbox_inches="tight"
+        os.path.join(plots_dir, f"{prefix}_degree_dist.png"), dpi=150, bbox_inches="tight"
     )
     plt.close()
 
@@ -169,41 +169,87 @@ def analyze_network(G, name):
     return results
 
 
+def random_node_deletion(G, fraction=0.05):
+    """Delete a fraction of nodes chosen uniformly at random."""
+    n_remove = int(fraction * G.number_of_nodes())
+    nodes_to_remove = np.random.choice(G.nodes(), n_remove, replace=False)
+    G.remove_nodes_from(nodes_to_remove)
+    return G
+
+
+def process_model(model_name, n_nodes, m_edges, deletion_fraction=0.05):
+    model_dir = ensure_results_dir(model_name)
+    orig_dir = ensure_results_dir(os.path.join(model_name, "original"))
+    internal_dir = ensure_results_dir(os.path.join(model_name, "internal"))
+    deletion_dir = ensure_results_dir(os.path.join(model_name, "deletion"))
+    plots_dir = ensure_results_dir(os.path.join(model_name, "plots"))
+    results_all = []
+
+    # Original
+    G = (
+        link_selection_model(n_nodes, m_edges)
+        if model_name == "Link_Selection"
+        else (
+            copying_model(n_nodes, m_edges)
+            if model_name == "Copying_Model"
+            else barabasi_albert_model(n_nodes, m_edges)
+        )
+    )
+    res_name = "original"
+    results = analyze_network(G, res_name)
+    save_edge_list_csv(G, res_name, orig_dir)
+    plot_degree_distribution(results["degree_dist"], res_name, plots_dir)
+    print(
+        f"  {res_name}: Nodes: {results['nodes']}, Edges: {results['edges']}, "
+        f"Avg Degree: {results['avg_degree']:.2f}, Clustering: {results['clustering']:.4f}"
+    )
+    results_all.append(results)
+
+    # Internal links
+    if model_name == "Link_Selection":
+        G_internal = link_selection_model(n_nodes, m_edges, internal_links=True)
+    elif model_name == "Copying_Model":
+        G_internal = copying_model(n_nodes, m_edges, internal_links=True)
+    else:
+        G_internal = barabasi_albert_model(n_nodes, m_edges, internal_links=True)
+    res_name = "internal"
+    results_internal = analyze_network(G_internal, res_name)
+    save_edge_list_csv(G_internal, res_name, internal_dir)
+    plot_degree_distribution(results_internal["degree_dist"], res_name, plots_dir)
+    print(
+        f"  {res_name}: Nodes: {results_internal['nodes']}, Edges: {results_internal['edges']}, "
+        f"Avg Degree: {results_internal['avg_degree']:.2f}, Clustering: {results_internal['clustering']:.4f}"
+    )
+    results_all.append(results_internal)
+
+    # Node deletion (from original)
+    G_deleted = G.copy()
+    G_deleted = random_node_deletion(G_deleted, fraction=deletion_fraction)
+    res_name = "deletion"
+    results_deleted = analyze_network(G_deleted, res_name)
+    save_edge_list_csv(G_deleted, res_name, deletion_dir)
+    plot_degree_distribution(results_deleted["degree_dist"], res_name, plots_dir)
+    print(
+        f"  {res_name}: Nodes: {results_deleted['nodes']}, Edges: {results_deleted['edges']}, "
+        f"Avg Degree: {results_deleted['avg_degree']:.2f}, Clustering: {results_deleted['clustering']:.4f}"
+    )
+    results_all.append(results_deleted)
+
+    return results_all
+
+
 def main():
     ensure_results_dir()
     n_nodes = 2000
     m_edges = 3
-    models = [
-        ("Link_Selection", lambda: link_selection_model(n_nodes, m_edges)),
-        ("Copying_Model", lambda: copying_model(n_nodes, m_edges)),
-        ("Barabasi_Albert", lambda: barabasi_albert_model(n_nodes, m_edges)),
-        (
-            "Internal_Link_Selection",
-            lambda: link_selection_model(n_nodes, m_edges, internal_links=True),
-        ),
-        (
-            "Internal_Copying",
-            lambda: copying_model(n_nodes, m_edges, internal_links=True),
-        ),
-        (
-            "Internal_BA",
-            lambda: barabasi_albert_model(n_nodes, m_edges, internal_links=True),
-        ),
-    ]
+    deletion_fraction = 0.05
+
+    model_names = ["Link_Selection", "Copying_Model", "Barabasi_Albert"]
     all_results = []
-    for name, model_func in models:
-        print(f"\nGenerating {name} network...")
-        outdir = ensure_results_dir(name)
-        G = model_func()
-        results = analyze_network(G, name)
-        all_results.append(results)
-        save_edge_list_csv(G, name, outdir)
-        plot_degree_distribution(results["degree_dist"], name, outdir)
-        print(
-            f"  Nodes: {results['nodes']}, Edges: {results['edges']}, "
-            f"Avg Degree: {results['avg_degree']:.2f}, "
-            f"Clustering: {results['clustering']:.4f}"
-        )
+    for model_name in model_names:
+        print(f"\nProcessing {model_name}...")
+        results_list = process_model(model_name, n_nodes, m_edges, deletion_fraction)
+        all_results.extend(results_list)
     save_analysis_csv(all_results)
     print(f"\n✓ All results saved to {RESULTS_DIR}")
     print("Files generated in subdirectories per model.")
