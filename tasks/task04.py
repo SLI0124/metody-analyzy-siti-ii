@@ -72,7 +72,9 @@ def plot_degree_distribution(degree_dist, prefix, plots_dir):
     plt.title(f"Degree Distribution - {prefix}", fontsize=14)
     plt.grid(True, alpha=0.3)
     plt.savefig(
-        os.path.join(plots_dir, f"{prefix}_degree_dist.png"), dpi=150, bbox_inches="tight"
+        os.path.join(plots_dir, f"{prefix}_degree_dist.png"),
+        dpi=150,
+        bbox_inches="tight",
     )
     plt.close()
 
@@ -197,6 +199,7 @@ def process_model(model_name, n_nodes, m_edges, deletion_fraction=0.05):
     )
     res_name = "original"
     results = analyze_network(G, res_name)
+    results["source"] = model_name
     save_edge_list_csv(G, res_name, orig_dir)
     plot_degree_distribution(results["degree_dist"], res_name, plots_dir)
     print(
@@ -214,6 +217,7 @@ def process_model(model_name, n_nodes, m_edges, deletion_fraction=0.05):
         G_internal = barabasi_albert_model(n_nodes, m_edges, internal_links=True)
     res_name = "internal"
     results_internal = analyze_network(G_internal, res_name)
+    results_internal["source"] = model_name
     save_edge_list_csv(G_internal, res_name, internal_dir)
     plot_degree_distribution(results_internal["degree_dist"], res_name, plots_dir)
     print(
@@ -227,6 +231,7 @@ def process_model(model_name, n_nodes, m_edges, deletion_fraction=0.05):
     G_deleted = random_node_deletion(G_deleted, fraction=deletion_fraction)
     res_name = "deletion"
     results_deleted = analyze_network(G_deleted, res_name)
+    results_deleted["source"] = model_name
     save_edge_list_csv(G_deleted, res_name, deletion_dir)
     plot_degree_distribution(results_deleted["degree_dist"], res_name, plots_dir)
     print(
@@ -236,6 +241,62 @@ def process_model(model_name, n_nodes, m_edges, deletion_fraction=0.05):
     results_all.append(results_deleted)
 
     return results_all
+
+
+def plot_model_variants_degree_distributions(all_results, outdir, model_names):
+    for model_name in model_names:
+        plt.figure(figsize=(10, 6))
+        for variant in ["original", "internal", "deletion"]:
+            label = f"{model_name} {variant}"
+            for res in all_results:
+                if res["name"] == variant and model_name in res.get("source", model_name):
+                    degrees = list(res["degree_dist"].keys())
+                    counts = list(res["degree_dist"].values())
+                    if len(degrees) > 0 and len(counts) > 0:
+                        plt.loglog(
+                            degrees, counts, marker="o", linestyle="", alpha=0.7, label=variant
+                        )
+        plt.xlabel("Degree (k)")
+        plt.ylabel("Count")
+        plt.title(f"Degree Distributions: {model_name}")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.savefig(
+            os.path.join(outdir, f"{model_name}_variants_degree_dist.png"),
+            dpi=150,
+            bbox_inches="tight",
+        )
+        plt.close()
+
+
+def plot_model_trend_curves(all_results, outdir, model_names):
+    for model_name in model_names:
+        plt.figure(figsize=(10, 6))
+        for variant, color in zip(["original", "internal", "deletion"], ["blue", "green", "red"]):
+            for res in all_results:
+                if res["name"] == variant and res.get("source", "") == model_name:
+                    degrees = np.array(sorted(res["degree_dist"].keys()))
+                    counts = np.array([res["degree_dist"][d] for d in degrees])
+                    if len(degrees) > 0:
+                        cdf = np.cumsum(counts) / np.sum(counts)
+                        plt.plot(degrees, cdf, label=variant, color=color)
+        plt.xscale("log")
+        plt.xlabel("Degree (k)")
+        plt.ylabel("Cumulative Fraction (CDF)")
+        plt.title(f"Degree Distribution Trend Curves: {model_name}")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.savefig(
+            os.path.join(outdir, f"{model_name}_trend_curves.png"),
+            dpi=150,
+            bbox_inches="tight",
+        )
+        plt.close()
+
+
+def plot_all_comparisons(all_results, outdir, model_names):
+    plot_model_variants_degree_distributions(all_results, outdir, model_names)
+    plot_model_trend_curves(all_results, outdir, model_names)
 
 
 def main():
@@ -251,12 +312,9 @@ def main():
         results_list = process_model(model_name, n_nodes, m_edges, deletion_fraction)
         all_results.extend(results_list)
     save_analysis_csv(all_results)
+    plot_comparison_dir = ensure_results_dir("comparison_plots")
+    plot_all_comparisons(all_results, plot_comparison_dir, model_names)
     print(f"\n✓ All results saved to {RESULTS_DIR}")
-    print("Files generated in subdirectories per model.")
-    print("  - edge list CSVs (for Gephi)")
-    print("  - node attribute CSVs (for Gephi)")
-    print("  - degree distribution plots")
-    print("  - 1 network comparison CSV (in main results dir)")
 
 
 if __name__ == "__main__":
