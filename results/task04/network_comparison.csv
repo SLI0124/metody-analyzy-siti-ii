@@ -1,10 +1,10 @@
 ModelName      , Type    , Nodes, Edges, Avg_Degree, Max_Degree, Avg_Clustering, Density, Connected_Components
-Link_Selection , original,  2000,  5994,       5.99,        112,         0.0157,  0.0030,                    1
-Link_Selection , internal,  2000,  6166,       6.17,        100,         0.0189,  0.0031,                    1
-Link_Selection , deletion,  1900,  5380,       5.66,        105,         0.0150,  0.0030,                    1
-Copying_Model  , original,  2000,  5966,       5.97,        133,         0.0229,  0.0030,                    1
-Copying_Model  , internal,  2000,  6153,       6.15,        165,         0.0253,  0.0031,                    1
-Copying_Model  , deletion,  1900,  5389,       5.67,        129,         0.0225,  0.0030,                    1
-Barabasi_Albert, original,  2000,  5991,       5.99,        133,         0.0185,  0.0030,                    1
-Barabasi_Albert, internal,  2000,  6199,       6.20,        174,         0.0250,  0.0031,                    1
-Barabasi_Albert, deletion,  1900,  5384,       5.67,        125,         0.0183,  0.0030,                    1
+Link_Selection , original,  2000,  5994,       5.99,        157,         0.0203,  0.0030,                    1
+Link_Selection , internal,  2000,  6179,       6.18,        129,         0.0173,  0.0031,                    1
+Link_Selection , deletion,  1900,  5419,       5.70,        151,         0.0210,  0.0030,                    1
+Copying_Model  , original,  2000,  5964,       5.96,        114,         0.0169,  0.0030,                    1
+Copying_Model  , internal,  2000,  6133,       6.13,        125,         0.0227,  0.0031,                    1
+Copying_Model  , deletion,  1900,  5382,       5.67,        109,         0.0177,  0.0030,                    1
+Barabasi_Albert, original,  2000,  5991,       5.99,        157,         0.0198,  0.0030,                    1
+Barabasi_Albert, internal,  2000,  6178,       6.18,        117,         0.0237,  0.0031,                    1
+Barabasi_Albert, deletion,  1900,  5481,       5.77,        150,         0.0211,  0.0030,                    1
