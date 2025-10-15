@@ -5,6 +5,11 @@ import csv
 import matplotlib.pyplot as plt
 from collections import Counter
 from tqdm import tqdm
+import random
+
+SEED = 42
+np.random.seed(SEED)
+random.seed(SEED)
 
 RESULTS_DIR = "../results/task04"
 
