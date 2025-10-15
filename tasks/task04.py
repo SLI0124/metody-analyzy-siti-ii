@@ -37,7 +37,8 @@ def save_analysis_csv(results):
         writer = csv.writer(f)
         writer.writerow(
             [
-                "Model",
+                "ModelName",
+                "Type",
                 "Nodes",
                 "Edges",
                 "Avg_Degree",
@@ -50,7 +51,8 @@ def save_analysis_csv(results):
         for r in results:
             writer.writerow(
                 [
-                    r["name"],
+                    r.get("source", ""),  # model name
+                    r["name"],  # variant type
                     r["nodes"],
                     r["edges"],
                     f"{r['avg_degree']:.2f}",
