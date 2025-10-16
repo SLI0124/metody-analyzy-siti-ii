@@ -3,3 +3,4 @@ matplotlib
 networkx
 pandas
 scikit-learn
+seaborn
