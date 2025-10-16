@@ -1,18 +1,21 @@
+from collections import defaultdict
+from pathlib import Path
+
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
-from collections import defaultdict
 import seaborn as sns
-from pathlib import Path
-import os
+
+plt.style.use("default")
+sns.set_palette("husl")
 
 DATA_DIR = Path("../data/CS-Aarhus_Multiplex_Social/CS-Aarhus_Multiplex_Social/Dataset")
 RESULTS_DIR = Path("../results/task05")
 RESULTS_DIR.mkdir(exist_ok=True)
 
 
-def load_multiplex_data():
+def load_data():
     layers_df = pd.read_csv(DATA_DIR / "CS-Aarhus_layers.txt", sep=" ")
     nodes_df = pd.read_csv(DATA_DIR / "CS-Aarhus_nodes.txt", sep=" ")
     edges_df = pd.read_csv(
@@ -23,53 +26,46 @@ def load_multiplex_data():
     return layers_df, nodes_df, edges_df
 
 
-def create_layer_networks(edges_df, layers_df):
-    layer_networks = {}
+def build_networks(edges_df, layers_df):
     layer_names = dict(zip(layers_df["layerID"], layers_df["layerLabel"]))
+    layer_networks = {}
 
     for layer_id in layers_df["layerID"]:
         layer_edges = edges_df[edges_df["layerID"] == layer_id]
-        G = nx.Graph()
+        graph = nx.Graph()
         for _, row in layer_edges.iterrows():
-            G.add_edge(row["nodeID1"], row["nodeID2"], weight=row["weight"])
-        layer_networks[layer_names[layer_id]] = G
+            graph.add_edge(row["nodeID1"], row["nodeID2"], weight=row["weight"])
+        layer_networks[layer_names[layer_id]] = graph
 
-    return layer_networks
-
-
-def create_aggregated_networks(edges_df):
-    # Weighted aggregated network
-    G_weighted = nx.Graph()
     edge_weights = defaultdict(int)
-
     for _, row in edges_df.iterrows():
         edge = (row["nodeID1"], row["nodeID2"])
         edge_weights[edge] += row["weight"]
 
+    graph_weighted = nx.Graph()
     for (u, v), weight in edge_weights.items():
-        G_weighted.add_edge(u, v, weight=weight)
+        graph_weighted.add_edge(u, v, weight=weight)
 
-    # Unweighted aggregated network
-    G_unweighted = nx.Graph()
+    graph_unweighted = nx.Graph()
     for _, row in edges_df.iterrows():
-        G_unweighted.add_edge(row["nodeID1"], row["nodeID2"])
+        graph_unweighted.add_edge(row["nodeID1"], row["nodeID2"])
 
-    return G_weighted, G_unweighted
+    return layer_networks, graph_weighted, graph_unweighted
 
 
-def compute_degree_centralities(layer_networks, G_weighted, G_unweighted, nodes_df):
+def compute_degrees(layer_networks, graph_weighted, graph_unweighted, nodes_df):
     results = pd.DataFrame(
         {"nodeID": nodes_df["nodeID"], "nodeLabel": nodes_df["nodeLabel"]}
     )
 
-    for layer_name, G in layer_networks.items():
-        degrees = dict(G.degree())
+    for layer_name, graph in layer_networks.items():
+        degrees = dict(graph.degree())
         results[f"degree_{layer_name}"] = results["nodeID"].map(
             lambda x: degrees.get(x, 0)
         )
 
-    weighted_degrees = dict(G_weighted.degree())
-    unweighted_degrees = dict(G_unweighted.degree())
+    weighted_degrees = dict(graph_weighted.degree())
+    unweighted_degrees = dict(graph_unweighted.degree())
 
     results["degree_weighted_agg"] = results["nodeID"].map(
         lambda x: weighted_degrees.get(x, 0)
@@ -80,64 +76,48 @@ def compute_degree_centralities(layer_networks, G_weighted, G_unweighted, nodes_
 
     layer_columns = [f"degree_{layer}" for layer in layer_networks.keys()]
     results["degree_total"] = results[layer_columns].sum(axis=1)
+    results["degree_mean"] = results[layer_columns].mean(axis=1)
+    results["degree_std"] = results[layer_columns].std(axis=1)
+    results["degree_cv"] = results["degree_std"] / (results["degree_mean"] + 1e-6)
+
+    for col in layer_columns:
+        layer_name = col.replace("degree_", "")
+        results[f"deviation_{layer_name}"] = results[col] - results["degree_mean"]
 
     return results
 
 
-def analyze_layer_significance(layer_networks):
-    layer_stats = {}
-
-    for layer_name, G in layer_networks.items():
-        stats = {
-            "nodes": G.number_of_nodes(),
-            "edges": G.number_of_edges(),
-            "density": nx.density(G),
+def analyze_layers(layer_networks):
+    stats = {}
+    for layer_name, graph in layer_networks.items():
+        stats[layer_name] = {
+            "nodes": graph.number_of_nodes(),
+            "edges": graph.number_of_edges(),
+            "density": nx.density(graph),
             "avg_degree": (
-                sum(dict(G.degree()).values()) / G.number_of_nodes()
-                if G.number_of_nodes() > 0
+                sum(dict(graph.degree()).values()) / graph.number_of_nodes()
+                if graph.number_of_nodes() > 0
                 else 0
             ),
             "max_degree": (
-                max(dict(G.degree()).values()) if G.number_of_nodes() > 0 else 0
+                max(dict(graph.degree()).values()) if graph.number_of_nodes() > 0 else 0
             ),
-            "clustering_coefficient": nx.average_clustering(G),
-            "connected_components": nx.number_connected_components(G),
+            "clustering_coefficient": nx.average_clustering(graph),
+            "connected_components": nx.number_connected_components(graph),
         }
-        layer_stats[layer_name] = stats
-
-    layer_stats_df = pd.DataFrame(layer_stats).T
-    layer_stats_df = layer_stats_df.round(4)
-
-    return layer_stats_df
+    return pd.DataFrame(stats).T.round(4)
 
 
-def calculate_degree_deviation(degree_results):
+def find_specialists(degree_results):
     layer_columns = [
         col
         for col in degree_results.columns
-        if col.startswith("degree_") and "agg" not in col and "total" not in col
-    ]
-
-    degree_results["degree_mean"] = degree_results[layer_columns].mean(axis=1)
-    degree_results["degree_std"] = degree_results[layer_columns].std(axis=1)
-    degree_results["degree_cv"] = degree_results["degree_std"] / (
-        degree_results["degree_mean"] + 1e-6
-    )  # Coefficient of variation
-
-    for col in layer_columns:
-        layer_name = col.replace("degree_", "")
-        degree_results[f"deviation_{layer_name}"] = (
-            degree_results[col] - degree_results["degree_mean"]
-        )
-
-    return degree_results
-
-
-def identify_layer_specialists(degree_results):
-    layer_columns = [
-        col
-        for col in degree_results.columns
-        if col.startswith("degree_") and "agg" not in col and "total" not in col
+        if col.startswith("degree_")
+        and "agg" not in col
+        and "total" not in col
+        and "mean" not in col
+        and "std" not in col
+        and "cv" not in col
     ]
 
     high_cv_threshold = degree_results["degree_cv"].quantile(0.8)
@@ -145,21 +125,20 @@ def identify_layer_specialists(degree_results):
         degree_results["degree_cv"] >= high_cv_threshold
     ].copy()
 
-    high_degree_threshold = {}
-    for col in layer_columns:
-        high_degree_threshold[col] = degree_results[col].quantile(0.8)
+    high_degree_threshold = {
+        col: degree_results[col].quantile(0.8) for col in layer_columns
+    }
 
     layer_specialists = []
     for _, row in degree_results.iterrows():
-        high_layers = []
-        low_layers = []
-
-        for col in layer_columns:
-            layer_name = col.replace("degree_", "")
-            if row[col] >= high_degree_threshold[col]:
-                high_layers.append(layer_name)
-            elif row[col] <= 1:  # Low degree threshold
-                low_layers.append(layer_name)
+        high_layers = [
+            col.replace("degree_", "")
+            for col in layer_columns
+            if row[col] >= high_degree_threshold[col]
+        ]
+        low_layers = [
+            col.replace("degree_", "") for col in layer_columns if row[col] <= 1
+        ]
 
         if len(high_layers) >= 1 and len(low_layers) >= 1:
             layer_specialists.append(
@@ -172,61 +151,54 @@ def identify_layer_specialists(degree_results):
                 }
             )
 
-    specialists_df = pd.DataFrame(layer_specialists)
-    return specialists, specialists_df
+    return specialists, pd.DataFrame(layer_specialists)
 
 
-def detect_communities(layer_networks, G_unweighted):
-    communities_results = {}
-
-    for layer_name, G in layer_networks.items():
-        if G.number_of_nodes() > 0:
+def detect_communities(layer_networks, graph_unweighted):
+    results = {}
+    for layer_name, graph in layer_networks.items():
+        if graph.number_of_nodes() > 0:
             try:
-                # Use Louvain community detection
-                communities = nx.community.louvain_communities(G, seed=42)
-                communities_results[layer_name] = {
+                communities = nx.community.louvain_communities(graph, seed=42)
+                results[layer_name] = {
                     "num_communities": len(communities),
                     "communities": communities,
-                    "modularity": nx.community.modularity(G, communities),
+                    "modularity": nx.community.modularity(graph, communities),
                 }
-            except Exception as e:
-                communities_results[layer_name] = {
+            except Exception:
+                results[layer_name] = {
                     "num_communities": 0,
                     "communities": [],
                     "modularity": 0,
                 }
 
-    if G_unweighted.number_of_nodes() > 0:
+    if graph_unweighted.number_of_nodes() > 0:
         try:
-            agg_communities = nx.community.louvain_communities(G_unweighted, seed=42)
-            communities_results["aggregated"] = {
+            agg_communities = nx.community.louvain_communities(
+                graph_unweighted, seed=42
+            )
+            results["aggregated"] = {
                 "num_communities": len(agg_communities),
                 "communities": agg_communities,
-                "modularity": nx.community.modularity(G_unweighted, agg_communities),
+                "modularity": nx.community.modularity(
+                    graph_unweighted, agg_communities
+                ),
             }
-        except Exception as e:
-            print(f"Could not compute communities for aggregated network: {e}")
+        except Exception:
+            pass
+    return results
 
-    return communities_results
 
-
-def create_visualizations(layer_networks, degree_results, layer_stats_df):
-    plt.style.use("default")
-    sns.set_palette("husl")
-
-    # 1. Layer comparison - number of edges and density
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+def plot_basic_stats(degree_results, layer_stats_df):
+    _, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
     layers = layer_stats_df.index
-    edges = layer_stats_df["edges"]
-    density = layer_stats_df["density"]
-
-    ax1.bar(layers, edges)
+    ax1.bar(layers, layer_stats_df["edges"])
     ax1.set_title("Number of Edges per Layer")
     ax1.set_ylabel("Number of Edges")
     ax1.tick_params(axis="x", rotation=45)
 
-    ax2.bar(layers, density)
+    ax2.bar(layers, layer_stats_df["density"])
     ax2.set_title("Network Density per Layer")
     ax2.set_ylabel("Density")
     ax2.tick_params(axis="x", rotation=45)
@@ -235,21 +207,22 @@ def create_visualizations(layer_networks, degree_results, layer_stats_df):
     plt.savefig(RESULTS_DIR / "layer_comparison.png", dpi=300, bbox_inches="tight")
     plt.close()
 
-    # 2. Degree distribution across layers
     layer_columns = [
         col
         for col in degree_results.columns
-        if col.startswith("degree_") and "agg" not in col and "total" not in col
+        if col.startswith("degree_")
+        and "agg" not in col
+        and "total" not in col
+        and "mean" not in col
+        and "std" not in col
+        and "cv" not in col
     ]
 
-    num_layers = len(layer_columns)
-    num_plots = num_layers + 1  # +1 for aggregated network
-
-    # Calculate subplot layout
+    num_plots = len(layer_columns) + 1
     cols = 3
     rows = (num_plots + cols - 1) // cols
 
-    fig, axes = plt.subplots(rows, cols, figsize=(18, 6 * rows))
+    _, axes = plt.subplots(rows, cols, figsize=(18, 6 * rows))
     if rows == 1:
         axes = axes.reshape(1, -1)
     axes = axes.flatten()
@@ -257,7 +230,6 @@ def create_visualizations(layer_networks, degree_results, layer_stats_df):
     for i, col in enumerate(layer_columns):
         layer_name = col.replace("degree_", "")
         degree_values = degree_results[col]
-
         axes[i].hist(
             degree_values,
             bins=range(0, int(max(degree_values)) + 2),
@@ -269,7 +241,6 @@ def create_visualizations(layer_networks, degree_results, layer_stats_df):
         axes[i].set_ylabel("Frequency")
         axes[i].grid(True, alpha=0.3)
 
-    # Aggregated network degree distribution
     agg_index = len(layer_columns)
     axes[agg_index].hist(
         degree_results["degree_unweighted_agg"],
@@ -283,7 +254,6 @@ def create_visualizations(layer_networks, degree_results, layer_stats_df):
     axes[agg_index].set_ylabel("Frequency")
     axes[agg_index].grid(True, alpha=0.3)
 
-    # Hide any unused subplots
     for i in range(num_plots, len(axes)):
         axes[i].set_visible(False)
 
@@ -326,18 +296,17 @@ def create_visualizations(layer_networks, degree_results, layer_stats_df):
     plt.close()
 
 
-def create_additional_visualizations(
-    layer_networks, degree_results, layer_stats_df, edges_df
-):
-    # Network overview
-    fig, axes = plt.subplots(2, 3, figsize=(20, 12))
+def plot_networks_and_analysis(layer_networks, degree_results, edges_df):
+    _, axes = plt.subplots(2, 3, figsize=(20, 12))
     axes = axes.flatten()
 
-    for i, (layer_name, G) in enumerate(layer_networks.items()):
-        pos = nx.spring_layout(G, k=1, iterations=50, seed=42)
-        node_sizes = [dict(G.degree()).get(node, 0) * 50 + 50 for node in G.nodes()]
+    for i, (layer_name, graph) in enumerate(layer_networks.items()):
+        pos = nx.spring_layout(graph, k=1, iterations=50, seed=42)
+        node_sizes = [
+            dict(graph.degree()).get(node, 0) * 50 + 50 for node in graph.nodes()
+        ]
         nx.draw(
-            G,
+            graph,
             pos,
             ax=axes[i],
             node_size=node_sizes,
@@ -347,18 +316,19 @@ def create_additional_visualizations(
             with_labels=False,
         )
         axes[i].set_title(
-            f"{layer_name.capitalize()}\n{G.number_of_nodes()} nodes, {G.number_of_edges()} edges"
+            f"{layer_name.capitalize()}\n{graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges"
         )
 
-    # Aggregated network
-    G_agg = nx.Graph()
-    for layer_name, G in layer_networks.items():
-        G_agg.add_edges_from(G.edges())
+    graph_agg = nx.Graph()
+    for layer_name, graph in layer_networks.items():
+        graph_agg.add_edges_from(graph.edges())
 
-    pos = nx.spring_layout(G_agg, k=1, iterations=50, seed=42)
-    node_sizes = [dict(G_agg.degree()).get(node, 0) * 30 + 30 for node in G_agg.nodes()]
+    pos = nx.spring_layout(graph_agg, k=1, iterations=50, seed=42)
+    node_sizes = [
+        dict(graph_agg.degree()).get(node, 0) * 30 + 30 for node in graph_agg.nodes()
+    ]
     nx.draw(
-        G_agg,
+        graph_agg,
         pos,
         ax=axes[5],
         node_size=node_sizes,
@@ -368,15 +338,14 @@ def create_additional_visualizations(
         with_labels=False,
     )
     axes[5].set_title(
-        f"Aggregated\n{G_agg.number_of_nodes()} nodes, {G_agg.number_of_edges()} edges"
+        f"Aggregated\n{graph_agg.number_of_nodes()} nodes, {graph_agg.number_of_edges()} edges"
     )
 
     plt.tight_layout()
     plt.savefig(RESULTS_DIR / "network_overview.png", dpi=300, bbox_inches="tight")
     plt.close()
 
-    # Top nodes and specialization
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    _, axes = plt.subplots(2, 2, figsize=(16, 12))
 
     top_nodes = degree_results.nlargest(10, "degree_total")
     axes[0, 0].barh(range(len(top_nodes)), top_nodes["degree_total"])
@@ -430,7 +399,6 @@ def create_additional_visualizations(
     )
     plt.close()
 
-    # Heatmaps and correlations
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 
     top_15 = degree_results.nlargest(15, "degree_total")
@@ -441,7 +409,6 @@ def create_additional_visualizations(
     sns.heatmap(heatmap_data, annot=True, cmap="YlOrRd", ax=axes[0, 0], fmt="d")
     axes[0, 0].set_title("Top 15 Nodes Across Layers")
 
-    layer_names = [col.replace("degree_", "") for col in layer_cols]
     corr_matrix = degree_results[layer_cols].corr()
     sns.heatmap(
         corr_matrix, annot=True, cmap="coolwarm", center=0, ax=axes[0, 1], fmt=".2f"
@@ -449,7 +416,7 @@ def create_additional_visualizations(
     axes[0, 1].set_title("Layer Correlations")
 
     activity_counts = [
-        sum([1 for col in layer_cols if row[col] > 0])
+        sum(1 for col in layer_cols if row[col] > 0)
         for _, row in degree_results.iterrows()
     ]
     axes[1, 0].hist(activity_counts, bins=range(0, 7), alpha=0.7, edgecolor="black")
@@ -472,12 +439,11 @@ def create_additional_visualizations(
     )
     plt.close()
 
-    # Network structure analysis
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 
-    colors = plt.cm.Set3(np.linspace(0, 1, len(layer_networks)))
-    for i, (layer_name, G) in enumerate(layer_networks.items()):
-        degrees = [d for n, d in G.degree()]
+    colors = plt.colormaps.get_cmap("Set3")(np.linspace(0, 1, len(layer_networks)))
+    for i, (layer_name, graph) in enumerate(layer_networks.items()):
+        degrees = [d for n, d in graph.degree()]
         if degrees:
             axes[0, 0].hist(
                 degrees,
@@ -490,7 +456,6 @@ def create_additional_visualizations(
     axes[0, 0].set_title("Degree Distributions")
     axes[0, 0].legend()
 
-    # Edge overlap matrix
     layer_names = list(layer_networks.keys())
     layer_edges = {name: set(G.edges()) for name, G in layer_networks.items()}
     overlap_matrix = np.zeros((len(layer_names), len(layer_names)))
@@ -512,7 +477,6 @@ def create_additional_visualizations(
     )
     axes[0, 1].set_title("Edge Overlap (Jaccard)")
 
-    # Multi-layer edge participation
     edge_counts = {}
     for _, row in edges_df.iterrows():
         edge = tuple(sorted([row["nodeID1"], row["nodeID2"]]))
@@ -526,16 +490,15 @@ def create_additional_visualizations(
     )
     axes[1, 0].set_title("Edge Multi-Layer Participation")
 
-    # Path lengths
     structure_data = []
-    for layer_name, G in layer_networks.items():
-        if nx.is_connected(G):
-            diameter = nx.diameter(G)
-            avg_path = nx.average_shortest_path_length(G)
+    for layer_name, graph in layer_networks.items():
+        if nx.is_connected(graph):
+            diameter = nx.diameter(graph)
+            avg_path = nx.average_shortest_path_length(graph)
         else:
-            if G.number_of_nodes() > 1:
-                largest_cc = max(nx.connected_components(G), key=len)
-                subgraph = G.subgraph(largest_cc)
+            if graph.number_of_nodes() > 1:
+                largest_cc = max(nx.connected_components(graph), key=len)
+                subgraph = graph.subgraph(largest_cc)
                 diameter = (
                     nx.diameter(subgraph) if subgraph.number_of_nodes() > 1 else 0
                 )
@@ -566,7 +529,7 @@ def create_additional_visualizations(
     plt.close()
 
 
-def save_results(
+def save_data(
     degree_results, layer_stats_df, communities_results, specialists, specialists_df
 ):
     degree_results.to_csv(RESULTS_DIR / "degree_centralities.csv", index=False)
@@ -593,45 +556,44 @@ def save_results(
 
 def main():
     print("Starting multiplex network analysis...")
-    
-    layers_df, nodes_df, edges_df = load_multiplex_data()
-    print(f"Data loaded: {len(nodes_df)} nodes, {len(edges_df)} edges, {len(layers_df)} layers")
 
-    layer_networks = create_layer_networks(edges_df, layers_df)
-    print(f"Layer networks created: {list(layer_networks.keys())}")
-    
-    G_weighted, G_unweighted = create_aggregated_networks(edges_df)
-    print(f"Aggregated networks created: {G_unweighted.number_of_nodes()} nodes, {G_unweighted.number_of_edges()} edges")
-    
-    degree_results = compute_degree_centralities(
-        layer_networks, G_weighted, G_unweighted, nodes_df
+    layers_df, nodes_df, edges_df = load_data()
+    print(
+        f"Data loaded: {len(nodes_df)} nodes, {len(edges_df)} edges, {len(layers_df)} layers"
     )
-    print("Degree centralities computed")
-    
-    layer_stats_df = analyze_layer_significance(layer_networks)
-    print("Layer significance analyzed")
 
-    degree_results = calculate_degree_deviation(degree_results)
-    print("Degree deviation calculated")
-
-    specialists, specialists_df = identify_layer_specialists(degree_results)
-    print(f"Layer specialists identified: {len(specialists)} high CV nodes, {len(specialists_df)} mixed activity nodes")
-
-    communities_results = detect_communities(layer_networks, G_unweighted)
-    print("Community detection completed")
-    
-    create_visualizations(layer_networks, degree_results, layer_stats_df)
-    print("Basic visualizations created")
-    
-    create_additional_visualizations(
-        layer_networks, degree_results, layer_stats_df, edges_df
+    layer_networks, graph_weighted, graph_unweighted = build_networks(
+        edges_df, layers_df
     )
+    print(f"✓ Networks created: {list(layer_networks.keys())}")
+
+    degree_results = compute_degrees(
+        layer_networks, graph_weighted, graph_unweighted, nodes_df
+    )
+    print("✓ Degree centralities computed")
+
+    layer_stats_df = analyze_layers(layer_networks)
+    print("✓ Layer significance analyzed")
+
+    specialists, specialists_df = find_specialists(degree_results)
+    print(
+        f"✓ Layer specialists identified: {len(specialists)} high CV nodes, {len(specialists_df)} mixed activity nodes"
+    )
+
+    communities_results = detect_communities(layer_networks, graph_unweighted)
+    print("✓ Community detection completed")
+
+    plot_basic_stats(degree_results, layer_stats_df)
+    print("✓ Basic visualizations created")
+
+    plot_networks_and_analysis(layer_networks, degree_results, edges_df)
     print("Additional visualizations created")
-    
-    save_results(
+
+    save_data(
         degree_results, layer_stats_df, communities_results, specialists, specialists_df
     )
     print(f"Results saved to {RESULTS_DIR}/")
+
 
 if __name__ == "__main__":
     main()
