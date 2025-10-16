@@ -1,0 +1,50 @@
+nodeID,nodeLabel,high_layers,low_layers,cv
+1,U102,cv,"facebook, coauthor, leisure, work, mean, std",2.236062387343822
+2,U139,"work, std, cv","lunch, facebook, coauthor, leisure",2.0112522263361003
+3,U33,"work, cv","facebook, coauthor, leisure",1.4142130909687312
+4,U106,coauthor,cv,0.6606873153369063
+6,U118,"coauthor, work","facebook, cv",0.9560998602150341
+7,U123,"facebook, work, mean, std, cv","coauthor, leisure",1.2689675171758392
+8,U1,"coauthor, leisure, work, mean",cv,0.6390841793786468
+10,U22,coauthor,"facebook, leisure",1.0391731454031206
+11,U26,"coauthor, work, std, cv","facebook, leisure",1.3928759306880794
+12,U29,coauthor,cv,0.534291081813945
+13,U32,"facebook, coauthor, work, mean, std",cv,0.7460834075690501
+14,U41,coauthor,"facebook, cv",0.8743352417417694
+18,U97,"lunch, coauthor, cv","facebook, leisure",1.2408833473713088
+19,U124,"facebook, std","coauthor, cv",0.9591661128293212
+20,U17,leisure,"facebook, coauthor, cv",0.9337628691754035
+21,U71,"work, mean, std","coauthor, leisure",1.1055414125282312
+22,U86,cv,"lunch, facebook, coauthor, leisure, mean, std",1.4907095004840256
+23,U91,"facebook, coauthor, leisure, mean, std",cv,0.5178751284732076
+24,U109,lunch,"coauthor, cv",0.8944270121145135
+25,U126,"lunch, leisure, mean, std","facebook, coauthor",1.2044155207755773
+26,U130,"facebook, coauthor, work, mean, std","leisure, cv",0.8026909659369802
+27,U134,"lunch, coauthor, std, cv",leisure,1.3408350037844068
+28,U18,"lunch, coauthor",cv,0.5656853118121756
+30,U47,"facebook, coauthor","leisure, cv",0.850330563650223
+31,U54,"lunch, facebook, leisure, mean","coauthor, cv",0.57142848979593
+32,U62,lunch,"facebook, coauthor",1.1353685279838943
+33,U76,"lunch, facebook, coauthor, leisure, mean",cv,0.5252416777426007
+34,U79,"lunch, facebook, leisure, work, mean, std","coauthor, cv",0.6645540843558289
+35,U90,"lunch, leisure","facebook, coauthor, cv",0.9914566758564947
+36,U99,coauthor,"facebook, cv",0.8002697938632757
+37,U10,"coauthor, leisure",cv,0.5473450837303125
+38,U13,coauthor,"facebook, leisure, cv",0.9128704220250424
+39,U142,"facebook, coauthor",cv,0.9434099066242578
+40,U14,"lunch, leisure, work","facebook, coauthor, cv",0.9722383988643383
+42,U23,leisure,"facebook, coauthor, cv",0.9217422871900741
+43,U37,cv,"facebook, coauthor, work",1.38332140904241
+44,U4,"lunch, facebook, work, mean, std","coauthor, leisure, cv",0.9279543987303395
+45,U73,leisure,"facebook, coauthor, cv",0.9185584239040858
+46,U110,"facebook, coauthor, leisure, work, mean",cv,0.45138422600977124
+48,U138,coauthor,"facebook, cv",0.7569122731442591
+49,U53,coauthor,"facebook, leisure, cv",0.8743352417417694
+50,U65,leisure,"coauthor, cv",0.639492290875549
+51,U67,"lunch, facebook, work, mean, std","coauthor, cv",0.8824016658435557
+52,U72,"lunch, coauthor","facebook, cv",0.9354141128399571
+54,U48,"coauthor, cv","facebook, leisure",1.2747542410210755
+55,U68,coauthor,"facebook, cv",0.8640180297144759
+57,U63,cv,"facebook, coauthor, leisure",1.3787039995075545
+59,U92,cv,"facebook, coauthor, leisure",1.564920475071564
+60,U140,cv,"lunch, facebook, coauthor, leisure, mean, std",2.2360623873438215
