@@ -167,7 +167,7 @@ def calculate_occupation_centrality(visit_counts, all_actors):
     return occupation_centralities
 
 
-def merge_layer_networks_flattening(layer_networks, all_actors):
+def merge_layer_networks_flattening(layer_networks, all_actors, weighted=False):
     """
     Task 3: Network flattening -
     V_f = {a | (a, l) ∈ V}, E_f = {(a_i, a_j) | {(a_i, l_q), (a_j, l_r)} ∈ E}
@@ -175,11 +175,132 @@ def merge_layer_networks_flattening(layer_networks, all_actors):
     flattened = nx.Graph()
     flattened.add_nodes_from(all_actors)
 
-    for graph in layer_networks.values():
-        for edge in graph.edges():
-            flattened.add_edge(edge[0], edge[1])
+    if weighted:
+        # Weighted flattening - sum weights across layers
+        edge_weights = defaultdict(float)
+        for graph in layer_networks.values():
+            for edge in graph.edges(data=True):
+                node1, node2, data = edge
+                weight = data.get("weight", 1.0)
+                edge_key = tuple(sorted([node1, node2]))
+                edge_weights[edge_key] += weight
+
+        for (node1, node2), weight in edge_weights.items():
+            flattened.add_edge(node1, node2, weight=weight)
+    else:
+        # Unweighted flattening
+        for graph in layer_networks.values():
+            for edge in graph.edges():
+                flattened.add_edge(edge[0], edge[1])
 
     return flattened
+
+
+def compute_degree_analysis(layer_networks, all_actors, all_layers):
+    """Compute degree analysis for each layer and overall"""
+    degree_analysis = []
+
+    # Analyze each layer separately
+    for layer_name, graph in layer_networks.items():
+        degrees = dict(graph.degree())
+        total_degree = sum(degrees.values())
+
+        for actor in all_actors:
+            degree = degrees.get(actor, 0)
+            degree_prob = degree / total_degree if total_degree > 0 else 0.0
+
+            degree_analysis.append(
+                {
+                    "actor": actor,
+                    "layer": layer_name,
+                    "degree": degree,
+                    "degree_probability": degree_prob,
+                }
+            )
+
+    # Overall multilayer degree
+    for actor in all_actors:
+        total_degree = sum(
+            layer_networks[layer].degree(actor) if actor in layer_networks[layer] else 0
+            for layer in all_layers
+        )
+
+        overall_total = sum(
+            sum(dict(graph.degree()).values()) for graph in layer_networks.values()
+        )
+        overall_prob = total_degree / overall_total if overall_total > 0 else 0.0
+
+        degree_analysis.append(
+            {
+                "actor": actor,
+                "layer": "ALL_LAYERS",
+                "degree": total_degree,
+                "degree_probability": overall_prob,
+            }
+        )
+
+    return pd.DataFrame(degree_analysis)
+
+
+def compare_rw_with_degree_probabilities(visit_counts, degree_analysis, all_actors):
+    """Compare random walk probabilities with degree probabilities"""
+
+    # Calculate RW probabilities per layer
+    rw_probs_by_layer = {}
+    for layer in degree_analysis["layer"].unique():
+        if layer != "ALL_LAYERS":
+            layer_visits = {actor: 0 for actor in all_actors}
+            total_layer_visits = 0
+
+            for (actor, visit_layer), count in visit_counts.items():
+                if visit_layer == layer:
+                    layer_visits[actor] += count
+                    total_layer_visits += count
+
+            if total_layer_visits > 0:
+                rw_probs_by_layer[layer] = {
+                    actor: visits / total_layer_visits
+                    for actor, visits in layer_visits.items()
+                }
+            else:
+                rw_probs_by_layer[layer] = {actor: 0.0 for actor in all_actors}
+
+    # Overall RW probabilities
+    total_visits = sum(visit_counts.values())
+    actor_visits = defaultdict(int)
+    for (actor, _), count in visit_counts.items():
+        actor_visits[actor] += count
+
+    overall_rw_probs = {
+        actor: visits / total_visits if total_visits > 0 else 0.0
+        for actor, visits in actor_visits.items()
+    }
+
+    comparison_data = []
+
+    for _, row in degree_analysis.iterrows():
+        actor = row["actor"]
+        layer = row["layer"]
+        degree = row["degree"]
+        degree_prob = row["degree_probability"]
+
+        if layer == "ALL_LAYERS":
+            rw_prob = overall_rw_probs.get(actor, 0.0)
+        else:
+            rw_prob = rw_probs_by_layer.get(layer, {}).get(actor, 0.0)
+
+        comparison_data.append(
+            {
+                "actor": actor,
+                "layer": layer,
+                "degree": degree,
+                "degree_probability": degree_prob,
+                "random_walk_probability": rw_prob,
+                "prob_difference": abs(degree_prob - rw_prob),
+            }
+        )
+
+    return pd.DataFrame(comparison_data)
 
 
 def compute_relevance_measures(results, layer_networks, all_layers):
@@ -222,33 +343,61 @@ def compute_relevance_measures(results, layer_networks, all_layers):
 
 
 def compute_network_statistics(
-    layer_networks, flattened_network, all_actors, all_layers
+    layer_networks, flattened_unweighted, flattened_weighted, all_actors, all_layers
 ):
     layer_densities = [nx.density(g) for g in layer_networks.values()]
     avg_layer_density = sum(layer_densities) / len(layer_densities)
 
     total_degree_sum = 0
+    total_weight_sum = 0
+    total_edges = 0
+
     for g in layer_networks.values():
         total_degree_sum += sum(dict(g.degree()).values())
+        total_edges += g.number_of_edges()
+        total_weight_sum += sum(
+            data.get("weight", 1.0) for _, _, data in g.edges(data=True)
+        )
+
     avg_degree_all_layers = total_degree_sum / (len(all_actors) * len(all_layers))
+    avg_weight_original = total_weight_sum / total_edges if total_edges > 0 else 1.0
 
     original_stats = {
         "total_nodes": len(all_actors),
-        "total_edges": sum(g.number_of_edges() for g in layer_networks.values()),
+        "total_edges": total_edges,
         "layers": len(all_layers),
         "avg_layer_density": avg_layer_density,
         "avg_degree_all_layers": avg_degree_all_layers,
+        "avg_weight": avg_weight_original,
     }
 
-    flattened_stats = {
-        "nodes": flattened_network.number_of_nodes(),
-        "edges": flattened_network.number_of_edges(),
-        "density": nx.density(flattened_network),
-        "avg_degree": sum(dict(flattened_network.degree()).values())
-        / flattened_network.number_of_nodes(),
+    unweighted_stats = {
+        "nodes": flattened_unweighted.number_of_nodes(),
+        "edges": flattened_unweighted.number_of_edges(),
+        "density": nx.density(flattened_unweighted),
+        "avg_degree": sum(dict(flattened_unweighted.degree()).values())
+        / flattened_unweighted.number_of_nodes(),
+        "avg_weight": 1.0,  # Unweighted networks have weight 1.0 by definition
     }
 
-    return original_stats, flattened_stats
+    weighted_stats = {
+        "nodes": flattened_weighted.number_of_nodes(),
+        "edges": flattened_weighted.number_of_edges(),
+        "density": nx.density(flattened_weighted),
+        "avg_degree": sum(dict(flattened_weighted.degree()).values())
+        / flattened_weighted.number_of_nodes(),
+        "avg_weight": (
+            sum(
+                data.get("weight", 1.0)
+                for _, _, data in flattened_weighted.edges(data=True)
+            )
+            / flattened_weighted.number_of_edges()
+            if flattened_weighted.number_of_edges() > 0
+            else 0
+        ),
+    }
+
+    return original_stats, unweighted_stats, weighted_stats
 
 
 def compute_all_measures(layer_networks, nodes_df):
@@ -260,7 +409,12 @@ def compute_all_measures(layer_networks, nodes_df):
         {"nodeID": nodes_df["nodeID"], "nodeLabel": nodes_df["nodeLabel"]}
     )
 
+    # Task 1: Relevance measures
     results = compute_relevance_measures(results, layer_networks, all_layers)
+
+    # Degree analysis
+    print("Computing degree analysis...")
+    degree_analysis = compute_degree_analysis(layer_networks, all_actors, all_layers)
 
     # Task 2: Random walk and occupation centrality
     print("Computing random walk and occupation centrality...")
@@ -271,32 +425,87 @@ def compute_all_measures(layer_networks, nodes_df):
 
     results["occupation_centrality"] = results["nodeID"].map(occupation_centralities)
 
-    # Task 3: Network flattening
-    print("Computing flattened network...")
-    flattened_network = merge_layer_networks_flattening(layer_networks, all_actors)
-
-    original_stats, flattened_stats = compute_network_statistics(
-        layer_networks, flattened_network, all_actors, all_layers
+    # Compare RW with degree probabilities
+    print("Comparing random walk with degree probabilities...")
+    rw_degree_comparison = compare_rw_with_degree_probabilities(
+        visit_counts, degree_analysis, all_actors
     )
 
-    return results, flattened_network, original_stats, flattened_stats, visit_counts
+    # Task 3: Network flattening (both weighted and unweighted)
+    print("Computing flattened networks...")
+    flattened_unweighted = merge_layer_networks_flattening(
+        layer_networks, all_actors, weighted=False
+    )
+    flattened_weighted = merge_layer_networks_flattening(
+        layer_networks, all_actors, weighted=True
+    )
+
+    original_stats, unweighted_stats, weighted_stats = compute_network_statistics(
+        layer_networks, flattened_unweighted, flattened_weighted, all_actors, all_layers
+    )
+
+    return (
+        results,
+        degree_analysis,
+        rw_degree_comparison,
+        flattened_unweighted,
+        flattened_weighted,
+        original_stats,
+        unweighted_stats,
+        weighted_stats,
+        visit_counts,
+    )
 
 
-def save_results(results, flattened_network, stats_data, visit_counts, nodes_df):
-    original_stats, flattened_stats = stats_data
+def save_results(
+    results,
+    degree_analysis,
+    rw_degree_comparison,
+    flattened_unweighted,
+    flattened_weighted,
+    original_stats,
+    unweighted_stats,
+    weighted_stats,
+    visit_counts,
+    nodes_df,
+):
 
+    # Save relevance measures
     results.to_csv(RESULTS_DIR / "relevance_measures.csv", index=False)
     print(f"Saved relevance measures to {RESULTS_DIR / 'relevance_measures.csv'}")
 
-    # Save flattened network as CSV, i.e. edgelist for Gephi
+    # Save degree analysis
+    degree_analysis.to_csv(RESULTS_DIR / "degree_analysis.csv", index=False)
+    print(f"Saved degree analysis to {RESULTS_DIR / 'degree_analysis.csv'}")
+
+    # Save RW vs degree probability comparison
+    rw_degree_comparison.to_csv(RESULTS_DIR / "rw_degree_comparison.csv", index=False)
+    print(f"Saved RW-degree comparison to {RESULTS_DIR / 'rw_degree_comparison.csv'}")
+
+    # Save unweighted flattened network as CSV for Gephi
     edges_list = []
-    for edge in flattened_network.edges():
+    for edge in flattened_unweighted.edges():
         edges_list.append({"Source": edge[0], "Target": edge[1]})
 
     edges_df = pd.DataFrame(edges_list)
-    edges_df.to_csv(RESULTS_DIR / "flattened_network_edgelist.csv", index=False)
+    edges_df.to_csv(RESULTS_DIR / "flattened_unweighted_edgelist.csv", index=False)
     print(
-        f"Saved flattened network to {RESULTS_DIR / 'flattened_network_edgelist.csv'}"
+        f"Saved unweighted network to {RESULTS_DIR / 'flattened_unweighted_edgelist.csv'}"
+    )
+
+    # Save weighted flattened network as CSV for Gephi
+    weighted_edges_list = []
+    for edge in flattened_weighted.edges(data=True):
+        node1, node2, data = edge
+        weight = data.get("weight", 1.0)
+        weighted_edges_list.append({"Source": node1, "Target": node2, "Weight": weight})
+
+    weighted_edges_df = pd.DataFrame(weighted_edges_list)
+    weighted_edges_df.to_csv(
+        RESULTS_DIR / "flattened_weighted_edgelist.csv", index=False
+    )
+    print(
+        f"Saved weighted network to {RESULTS_DIR / 'flattened_weighted_edgelist.csv'}"
     )
 
     # Save nodes with labels
@@ -311,23 +520,38 @@ def save_results(results, flattened_network, stats_data, visit_counts, nodes_df)
             {
                 "metric": "nodes",
                 "original": original_stats["total_nodes"],
-                "flattened": flattened_stats["nodes"],
+                "unweighted_flattened": unweighted_stats["nodes"],
+                "weighted_flattened": weighted_stats["nodes"],
             },
             {
                 "metric": "edges",
                 "original": original_stats["total_edges"],
-                "flattened": flattened_stats["edges"],
+                "unweighted_flattened": unweighted_stats["edges"],
+                "weighted_flattened": weighted_stats["edges"],
             },
-            {"metric": "layers", "original": original_stats["layers"], "flattened": 1},
+            {
+                "metric": "layers",
+                "original": original_stats["layers"],
+                "unweighted_flattened": 1,
+                "weighted_flattened": 1,
+            },
             {
                 "metric": "density",
                 "original": original_stats["avg_layer_density"],
-                "flattened": flattened_stats["density"],
+                "unweighted_flattened": unweighted_stats["density"],
+                "weighted_flattened": weighted_stats["density"],
             },
             {
                 "metric": "avg_degree",
                 "original": original_stats["avg_degree_all_layers"],
-                "flattened": flattened_stats["avg_degree"],
+                "unweighted_flattened": unweighted_stats["avg_degree"],
+                "weighted_flattened": weighted_stats["avg_degree"],
+            },
+            {
+                "metric": "avg_weight",
+                "original": original_stats["avg_weight"],
+                "unweighted_flattened": unweighted_stats["avg_weight"],
+                "weighted_flattened": weighted_stats["avg_weight"],
             },
         ]
     )
@@ -342,17 +566,20 @@ def save_results(results, flattened_network, stats_data, visit_counts, nodes_df)
     )
     walk_details.to_csv(RESULTS_DIR / "random_walk_visits.csv", index=False)
 
-    print(f"All results saved to {RESULTS_DIR}]\n")
+    print(f"All results saved to {RESULTS_DIR}")
 
     print(f"Total actors: {original_stats['total_nodes']}")
     print(f"Total layers: {original_stats['layers']}")
     print(f"Total edges across all layers: {original_stats['total_edges']}")
-    print(f"Flattened network edges: {flattened_stats['edges']}")
-    print(f"Flattened network density: {flattened_stats['density']:.4f}")
-    print(f"Average degree in flattened network: {flattened_stats['avg_degree']:.2f}\n")
+    print(f"Unweighted flattened network edges: {unweighted_stats['edges']}")
+    print(f"Weighted flattened network edges: {weighted_stats['edges']}")
+    print(f"Unweighted network density: {unweighted_stats['density']:.4f}")
+    print(f"Weighted network density: {weighted_stats['density']:.4f}")
+    print(f"Average weight in weighted network: {weighted_stats['avg_weight']:.2f}")
 
 
 def main():
+    print("=== TASK 6: MULTILAYER SOCIAL NETWORKS - EXTENDED ANALYSIS ===")
     print("Loading CS-Aarhus multilayer social network...")
 
     layers_df, nodes_df, edges_df = load_data()
@@ -367,17 +594,32 @@ def main():
         edges_count = layer_networks[layer_name].number_of_edges()
         print(f"  - Layer {layer_id} ({layer_name}): {edges_count} edges")
 
-    results, flattened_network, original_stats, flattened_stats, visit_counts = (
-        compute_all_measures(layer_networks, nodes_df)
-    )
+    (
+        results,
+        degree_analysis,
+        rw_degree_comparison,
+        flattened_unweighted,
+        flattened_weighted,
+        original_stats,
+        unweighted_stats,
+        weighted_stats,
+        visit_counts,
+    ) = compute_all_measures(layer_networks, nodes_df)
 
     save_results(
         results,
-        flattened_network,
-        (original_stats, flattened_stats),
+        degree_analysis,
+        rw_degree_comparison,
+        flattened_unweighted,
+        flattened_weighted,
+        original_stats,
+        unweighted_stats,
+        weighted_stats,
         visit_counts,
         nodes_df,
     )
+
+    print("\n=== TASK COMPLETED SUCCESSFULLY ===")
 
 
 if __name__ == "__main__":
