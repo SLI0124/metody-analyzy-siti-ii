@@ -119,6 +119,132 @@ def compute_required_measures(layer_networks, nodes_df):
             get_exclusive_neighbors
         )
 
+    # Add neighborhood centrality and connective redundancy for layer combinations
+    layer_list = list(layer_networks.keys())
+
+    # For pairs of layers
+    for i in range(len(layer_list)):
+        for j in range(i + 1, len(layer_list)):
+            layer1, layer2 = layer_list[i], layer_list[j]
+            layer_combo = f"{layer1}_{layer2}"
+
+            def get_combo_neighbors(node_id, l1=layer1, l2=layer2):
+                neighbors_set = set()
+                if node_id in layer_networks[l1]:
+                    neighbors_set.update(layer_networks[l1].neighbors(node_id))
+                if node_id in layer_networks[l2]:
+                    neighbors_set.update(layer_networks[l2].neighbors(node_id))
+                return len(neighbors_set)
+
+            results[f"neighborhood_{layer_combo}"] = results["nodeID"].apply(
+                get_combo_neighbors
+            )
+
+            # Connective redundancy for this layer combination
+            degree_combo = results[f"degree_{layer1}"] + results[f"degree_{layer2}"]
+            results[f"connective_redundancy_{layer_combo}"] = results.apply(
+                lambda row, combo=layer_combo, deg_combo=degree_combo: (
+                    1 - (row[f"neighborhood_{combo}"] / deg_combo[row.name])
+                    if deg_combo[row.name] > 0
+                    else 0
+                ),
+                axis=1,
+            )
+
+    # For triplets of layers
+    for i in range(len(layer_list)):
+        for j in range(i + 1, len(layer_list)):
+            for k in range(j + 1, len(layer_list)):
+                layer1, layer2, layer3 = layer_list[i], layer_list[j], layer_list[k]
+                layer_combo = f"{layer1}_{layer2}_{layer3}"
+
+                def get_triplet_neighbors(node_id, l1=layer1, l2=layer2, l3=layer3):
+                    neighbors_set = set()
+                    if node_id in layer_networks[l1]:
+                        neighbors_set.update(layer_networks[l1].neighbors(node_id))
+                    if node_id in layer_networks[l2]:
+                        neighbors_set.update(layer_networks[l2].neighbors(node_id))
+                    if node_id in layer_networks[l3]:
+                        neighbors_set.update(layer_networks[l3].neighbors(node_id))
+                    return len(neighbors_set)
+
+                results[f"neighborhood_{layer_combo}"] = results["nodeID"].apply(
+                    get_triplet_neighbors
+                )
+
+                # Connective redundancy for this layer combination
+                degree_combo = (
+                    results[f"degree_{layer1}"]
+                    + results[f"degree_{layer2}"]
+                    + results[f"degree_{layer3}"]
+                )
+                results[f"connective_redundancy_{layer_combo}"] = results.apply(
+                    lambda row, combo=layer_combo, deg_combo=degree_combo: (
+                        1 - (row[f"neighborhood_{combo}"] / deg_combo[row.name])
+                        if deg_combo[row.name] > 0
+                        else 0
+                    ),
+                    axis=1,
+                )
+
+    # For quadruplets of layers
+    for i in range(len(layer_list)):
+        for j in range(i + 1, len(layer_list)):
+            for k in range(j + 1, len(layer_list)):
+                for l in range(k + 1, len(layer_list)):
+                    layer1, layer2, layer3, layer4 = (
+                        layer_list[i],
+                        layer_list[j],
+                        layer_list[k],
+                        layer_list[l],
+                    )
+                    layer_combo = f"{layer1}_{layer2}_{layer3}_{layer4}"
+
+                    def get_quadruplet_neighbors(
+                        node_id, l1=layer1, l2=layer2, l3=layer3, l4=layer4
+                    ):
+                        neighbors_set = set()
+                        if node_id in layer_networks[l1]:
+                            neighbors_set.update(layer_networks[l1].neighbors(node_id))
+                        if node_id in layer_networks[l2]:
+                            neighbors_set.update(layer_networks[l2].neighbors(node_id))
+                        if node_id in layer_networks[l3]:
+                            neighbors_set.update(layer_networks[l3].neighbors(node_id))
+                        if node_id in layer_networks[l4]:
+                            neighbors_set.update(layer_networks[l4].neighbors(node_id))
+                        return len(neighbors_set)
+
+                    results[f"neighborhood_{layer_combo}"] = results["nodeID"].apply(
+                        get_quadruplet_neighbors
+                    )
+
+                    # Connective redundancy for this layer combination
+                    degree_combo = (
+                        results[f"degree_{layer1}"]
+                        + results[f"degree_{layer2}"]
+                        + results[f"degree_{layer3}"]
+                        + results[f"degree_{layer4}"]
+                    )
+                    results[f"connective_redundancy_{layer_combo}"] = results.apply(
+                        lambda row, combo=layer_combo, deg_combo=degree_combo: (
+                            1 - (row[f"neighborhood_{combo}"] / deg_combo[row.name])
+                            if deg_combo[row.name] > 0
+                            else 0
+                        ),
+                        axis=1,
+                    )
+
+    # Add connective redundancy for individual layers
+    for layer_name in layer_networks.keys():
+        results[f"connective_redundancy_{layer_name}"] = results.apply(
+            lambda row, layer=layer_name: (
+                1 - (row[f"neighborhood_{layer}"] / row[f"degree_{layer}"])
+                if row[f"degree_{layer}"] > 0
+                else 0
+            ),
+            axis=1,
+        )
+
     return results
 
 
