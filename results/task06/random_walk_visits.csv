@@ -1,0 +1,306 @@
+actor, layer   , visit_count
+   41, lunch   ,       11093
+   41, work    ,       12121
+   31, work    ,       14184
+   26, work    ,       25463
+   13, work    ,       16367
+   13, facebook,       17737
+    7, facebook,       20290
+    7, lunch   ,       15660
+   57, lunch   ,       11836
+    3, lunch   ,       15409
+   44, lunch   ,       26260
+   18, lunch   ,       11517
+   43, lunch   ,        7801
+   51, lunch   ,       23539
+   44, leisure ,       12566
+   44, facebook,       20327
+    5, facebook,        8189
+    5, leisure ,        8946
+   21, facebook,       14483
+    4, facebook,       11076
+    4, coauthor,        7159
+    6, coauthor,       13194
+   14, coauthor,        6750
+   14, leisure ,        8543
+    6, leisure ,        9320
+    4, leisure ,        8907
+    4, work    ,        6792
+   14, work    ,        5382
+   10, work    ,        7820
+   11, work    ,       21782
+    6, work    ,       13955
+   21, work    ,       22889
+    8, work    ,       17824
+   42, work    ,       10082
+   40, work    ,       14263
+   40, leisure ,       14310
+   45, leisure ,       18223
+   41, leisure ,        8983
+   20, leisure ,       13522
+   20, lunch   ,       12900
+   42, lunch   ,       10989
+   45, lunch   ,       13203
+    8, lunch   ,       15038
+   12, lunch   ,       10167
+   13, lunch   ,       14738
+   37, lunch   ,        7676
+   33, work    ,        7700
+   32, work    ,       10314
+   32, lunch   ,       10364
+   24, lunch   ,       15225
+   28, work    ,        5957
+   19, work    ,        7372
+   19, facebook,       17296
+   12, facebook,        8317
+   12, work    ,        6515
+   20, work    ,       11441
+    7, work    ,       40276
+   15, work    ,        6932
+   16, work    ,        4484
+   11, leisure ,        5214
+    8, leisure ,       15718
+   26, lunch   ,       13319
+   22, lunch   ,        2319
+   34, lunch   ,       19967
+   28, lunch   ,       10646
+   21, lunch   ,       13582
+    5, work    ,        8841
+    8, coauthor,       12931
+   37, coauthor,       12403
+   37, work    ,       10841
+    2, work    ,       14606
+   34, work    ,       15531
+   34, leisure ,       18590
+   36, leisure ,        8409
+   36, lunch   ,        9906
+   30, lunch   ,        7381
+   31, lunch   ,       12954
+   58, facebook,        5567
+   33, facebook,       14100
+   24, facebook,        9009
+   28, facebook,       10965
+   29, facebook,        9222
+   26, facebook,       18985
+   19, leisure ,       10696
+   23, leisure ,       34578
+   23, facebook,       22566
+   34, facebook,       22506
+   35, leisure ,       18969
+   24, leisure ,       10070
+   24, work    ,        6475
+   32, leisure ,        6261
+   28, leisure ,       10761
+   25, leisure ,       23396
+   44, work    ,       33357
+   51, work    ,       35106
+   43, work    ,        2749
+   18, work    ,       11501
+   51, facebook,       21908
+   51, leisure ,       18095
+   46, leisure ,       23497
+   36, work    ,        9732
+   47, lunch   ,        9210
+   48, lunch   ,        5774
+   25, lunch   ,       22229
+   35, lunch   ,       13941
+   27, lunch   ,       15731
+   33, lunch   ,       12371
+   54, lunch   ,        8111
+   61, lunch   ,        5470
+   59, lunch   ,        6445
+   23, lunch   ,       14852
+   23, work    ,       18071
+   30, facebook,       14788
+   39, facebook,       15993
+   46, facebook,       16129
+    8, facebook,       10954
+   16, facebook,        3996
+   15, facebook,        7422
+   19, lunch   ,        6840
+   58, lunch   ,        7426
+   46, work    ,       25905
+   49, work    ,        5068
+   49, leisure ,        3943
+   23, coauthor,       17061
+   46, coauthor,       22639
+   48, coauthor,        6048
+   49, coauthor,       14496
+   52, coauthor,       10821
+   52, lunch   ,       16777
+   46, lunch   ,       14690
+   47, facebook,        9876
+   17, facebook,        8613
+   37, facebook,        8746
+   57, work    ,        8674
+   29, work    ,        4433
+   30, work    ,        6880
+   55, work    ,        6996
+   39, work    ,        5828
+   35, work    ,       10106
+   42, leisure ,       13649
+   40, lunch   ,       16808
+   37, leisure ,       15300
+   30, coauthor,        9050
+   26, coauthor,       23370
+   36, coauthor,        9089
+   28, coauthor,        9819
+   31, facebook,       14825
+   52, work    ,        9207
+   56, work    ,        7054
+   25, work    ,        9341
+   47, work    ,        8282
+   50, work    ,        7121
+   48, leisure ,       10121
+   52, leisure ,       10412
+   50, leisure ,       14504
+   17, lunch   ,       12081
+   50, lunch   ,        9375
+   49, lunch   ,        9136
+   17, work    ,        6748
+   17, leisure ,       10424
+   47, leisure ,       10414
+   50, facebook,        7301
+   15, lunch   ,        9617
+   16, lunch   ,        6374
+   11, lunch   ,        9107
+    4, lunch   ,        9669
+   22, work    ,        2960
+    2, leisure ,          71
+   27, work    ,        5530
+   29, lunch   ,        9123
+    1, lunch   ,        9329
+    2, lunch   ,        6649
+    3, work    ,       15050
+    9, work    ,        3841
+   56, lunch   ,        8110
+   38, lunch   ,        5492
+   27, facebook,        4166
+   27, coauthor,        5579
+   33, leisure ,       17737
+   31, leisure ,       19359
+   29, leisure ,        5306
+   48, work    ,        7780
+   33, coauthor,       10072
+    9, facebook,        5778
+   13, leisure ,        8211
+   12, leisure ,        7182
+    9, leisure ,        3197
+   56, leisure ,        5546
+    9, lunch   ,        7867
+   43, leisure ,        5302
+   39, leisure ,       10798
+   55, leisure ,        6465
+   53, work    ,        3519
+   15, leisure ,       11657
+   10, leisure ,        3958
+   16, leisure ,        3313
+   18, coauthor,        6785
+    5, lunch   ,        6773
+   61, work    ,        3571
+   45, work    ,       11881
+   56, facebook,        8626
+   10, lunch   ,        8167
+   11, coauthor,        9309
+   10, coauthor,        8696
+   13, coauthor,       11873
+   12, coauthor,       11134
+   39, coauthor,        8129
+   55, coauthor,        7857
+   55, lunch   ,        7134
+   53, lunch   ,        4272
+   30, leisure ,        3989
+   38, work    ,        6846
+   54, work    ,        5966
+   54, coauthor,        6439
+   38, coauthor,        6269
+    6, lunch   ,        9160
+   38, leisure ,        3277
+   39, lunch   ,        4910
+   61, leisure ,        3499
+   53, facebook,        3410
+   58, work    ,        3519
+   58, leisure ,        2976
+   59, work    ,        3944
+   14, lunch   ,        7209
+    1, facebook,         151
+   60, work    ,        2858
+    1, leisure ,          62
+   20, facebook,         110
+   59, facebook,         117
+   60, lunch   ,          81
+   59, leisure ,          55
+    1, work    ,          63
+   34, coauthor,         116
+   10, facebook,          87
+   21, leisure ,          54
+   43, coauthor,          76
+    2, coauthor,          73
+   60, facebook,          56
+   25, coauthor,          93
+   32, coauthor,          84
+   24, coauthor,          51
+   29, coauthor,         158
+   45, facebook,          70
+   61, facebook,          88
+   57, coauthor,          48
+    9, coauthor,          67
+   53, coauthor,          50
+   40, facebook,          52
+   20, coauthor,         111
+    1, coauthor,         112
+   50, coauthor,          45
+   61, coauthor,         108
+   47, coauthor,          48
+    2, facebook,          54
+   14, facebook,          74
+   43, facebook,          98
+   59, coauthor,          50
+   26, leisure ,          89
+   54, leisure ,          89
+   31, coauthor,         111
+    5, coauthor,          47
+   56, coauthor,          86
+   11, facebook,          93
+   54, facebook,          50
+   45, coauthor,         101
+   60, coauthor,          50
+   41, coauthor,          76
+   22, coauthor,          82
+   55, facebook,          49
+   15, coauthor,         111
+    3, leisure ,          78
+   60, leisure ,          60
+   22, leisure ,          67
+    7, leisure ,          65
+    6, facebook,         112
+   16, coauthor,          85
+    3, coauthor,          74
+   57, leisure ,         102
+   52, facebook,          79
+   18, leisure ,         100
+   19, coauthor,          42
+   49, facebook,          80
+   35, coauthor,          98
+   41, facebook,          45
+   17, coauthor,          89
+   32, facebook,          97
+   48, facebook,          61
+   18, facebook,         110
+   42, facebook,          78
+    7, coauthor,          58
+   40, coauthor,          39
+   44, coauthor,          58
+   27, leisure ,         133
+   36, facebook,         107
+   38, facebook,         101
+   58, coauthor,          72
+    3, facebook,          71
+   35, facebook,         103
+   21, coauthor,          58
+   25, facebook,          60
+   22, facebook,          65
+   57, facebook,          92
+   42, coauthor,          73
+   51, coauthor,          90
+   53, leisure ,          29
