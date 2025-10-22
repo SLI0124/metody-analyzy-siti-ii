@@ -196,74 +196,29 @@ def merge_layer_networks_flattening(layer_networks, all_actors, weighted=False):
     return flattened
 
 
-def compute_degree_analysis(layer_networks, all_actors, all_layers):
-    """Compute degree analysis for each layer and overall"""
-    degree_analysis = []
-
-    # Analyze each layer separately
-    for layer_name, graph in layer_networks.items():
-        degrees = dict(graph.degree())
-        total_degree = sum(degrees.values())
-
-        for actor in all_actors:
-            degree = degrees.get(actor, 0)
-            degree_prob = degree / total_degree if total_degree > 0 else 0.0
-
-            degree_analysis.append(
-                {
-                    "actor": actor,
-                    "layer": layer_name,
-                    "degree": degree,
-                    "degree_probability": degree_prob,
-                }
-            )
-
-    # Overall multilayer degree
-    for actor in all_actors:
-        total_degree = sum(
-            layer_networks[layer].degree(actor) if actor in layer_networks[layer] else 0
-            for layer in all_layers
-        )
-
-        overall_total = sum(
-            sum(dict(graph.degree()).values()) for graph in layer_networks.values()
-        )
-        overall_prob = total_degree / overall_total if overall_total > 0 else 0.0
-
-        degree_analysis.append(
-            {
-                "actor": actor,
-                "layer": "ALL_LAYERS",
-                "degree": total_degree,
-                "degree_probability": overall_prob,
-            }
-        )
-
-    return pd.DataFrame(degree_analysis)
-
-
-def compare_rw_with_degree_probabilities(visit_counts, degree_analysis, all_actors):
-    """Compare random walk probabilities with degree probabilities"""
+def compute_degree_and_rw_analysis(
+    layer_networks, all_actors, all_layers, visit_counts
+):
+    """Compute combined degree analysis and random walk comparison"""
 
     # Calculate RW probabilities per layer
     rw_probs_by_layer = {}
-    for layer in degree_analysis["layer"].unique():
-        if layer != "ALL_LAYERS":
-            layer_visits = {actor: 0 for actor in all_actors}
-            total_layer_visits = 0
+    for layer_name in layer_networks.keys():
+        layer_visits = {actor: 0 for actor in all_actors}
+        total_layer_visits = 0
 
-            for (actor, visit_layer), count in visit_counts.items():
-                if visit_layer == layer:
-                    layer_visits[actor] += count
-                    total_layer_visits += count
+        for (actor, visit_layer), count in visit_counts.items():
+            if visit_layer == layer_name:
+                layer_visits[actor] += count
+                total_layer_visits += count
 
-            if total_layer_visits > 0:
-                rw_probs_by_layer[layer] = {
-                    actor: visits / total_layer_visits
-                    for actor, visits in layer_visits.items()
-                }
-            else:
-                rw_probs_by_layer[layer] = {actor: 0.0 for actor in all_actors}
+        if total_layer_visits > 0:
+            rw_probs_by_layer[layer_name] = {
+                actor: visits / total_layer_visits
+                for actor, visits in layer_visits.items()
+            }
+        else:
+            rw_probs_by_layer[layer_name] = {actor: 0.0 for actor in all_actors}
 
     # Overall RW probabilities
     total_visits = sum(visit_counts.values())
@@ -276,31 +231,55 @@ def compare_rw_with_degree_probabilities(visit_counts, degree_analysis, all_acto
         for actor, visits in actor_visits.items()
     }
 
-    comparison_data = []
+    analysis_data = []
 
-    for _, row in degree_analysis.iterrows():
-        actor = row["actor"]
-        layer = row["layer"]
-        degree = row["degree"]
-        degree_prob = row["degree_probability"]
+    # Analyze each layer separately
+    for layer_name, graph in layer_networks.items():
+        degrees = dict(graph.degree())
+        total_degree = sum(degrees.values())
 
-        if layer == "ALL_LAYERS":
-            rw_prob = overall_rw_probs.get(actor, 0.0)
-        else:
-            rw_prob = rw_probs_by_layer.get(layer, {}).get(actor, 0.0)
+        for actor in all_actors:
+            degree = degrees.get(actor, 0)
+            degree_prob = degree / total_degree if total_degree > 0 else 0.0
+            rw_prob = rw_probs_by_layer[layer_name].get(actor, 0.0)
 
-        comparison_data.append(
+            analysis_data.append(
+                {
+                    "actor": actor,
+                    "layer": layer_name,
+                    "degree": degree,
+                    "degree_probability": degree_prob,
+                    "random_walk_probability": rw_prob,
+                    "prob_difference": abs(degree_prob - rw_prob),
+                }
+            )
+
+    # Overall multilayer analysis
+    overall_total = sum(
+        sum(dict(graph.degree()).values()) for graph in layer_networks.values()
+    )
+
+    for actor in all_actors:
+        total_degree = sum(
+            layer_networks[layer].degree(actor) if actor in layer_networks[layer] else 0
+            for layer in all_layers
+        )
+
+        overall_degree_prob = total_degree / overall_total if overall_total > 0 else 0.0
+        overall_rw_prob = overall_rw_probs.get(actor, 0.0)
+
+        analysis_data.append(
             {
                 "actor": actor,
-                "layer": layer,
-                "degree": degree,
-                "degree_probability": degree_prob,
-                "random_walk_probability": rw_prob,
-                "prob_difference": abs(degree_prob - rw_prob),
+                "layer": "ALL_LAYERS",
+                "degree": total_degree,
+                "degree_probability": overall_degree_prob,
+                "random_walk_probability": overall_rw_prob,
+                "prob_difference": abs(overall_degree_prob - overall_rw_prob),
             }
         )
 
-    return pd.DataFrame(comparison_data)
+    return pd.DataFrame(analysis_data)
 
 
 def compute_relevance_measures(results, layer_networks, all_layers):
@@ -412,10 +391,6 @@ def compute_all_measures(layer_networks, nodes_df):
     # Task 1: Relevance measures
     results = compute_relevance_measures(results, layer_networks, all_layers)
 
-    # Degree analysis
-    print("Computing degree analysis...")
-    degree_analysis = compute_degree_analysis(layer_networks, all_actors, all_layers)
-
     # Task 2: Random walk and occupation centrality
     print("Computing random walk and occupation centrality...")
     visit_counts = perform_layered_random_walk(
@@ -425,10 +400,10 @@ def compute_all_measures(layer_networks, nodes_df):
 
     results["occupation_centrality"] = results["nodeID"].map(occupation_centralities)
 
-    # Compare RW with degree probabilities
-    print("Comparing random walk with degree probabilities...")
-    rw_degree_comparison = compare_rw_with_degree_probabilities(
-        visit_counts, degree_analysis, all_actors
+    # Combined degree analysis and RW comparison
+    print("Computing degree analysis and random walk comparison...")
+    degree_rw_analysis = compute_degree_and_rw_analysis(
+        layer_networks, all_actors, all_layers, visit_counts
     )
 
     # Task 3: Network flattening (both weighted and unweighted)
@@ -446,8 +421,7 @@ def compute_all_measures(layer_networks, nodes_df):
 
     return (
         results,
-        degree_analysis,
-        rw_degree_comparison,
+        degree_rw_analysis,
         flattened_unweighted,
         flattened_weighted,
         original_stats,
@@ -459,8 +433,7 @@ def compute_all_measures(layer_networks, nodes_df):
 
 def save_results(
     results,
-    degree_analysis,
-    rw_degree_comparison,
+    degree_rw_analysis,
     flattened_unweighted,
     flattened_weighted,
     original_stats,
@@ -474,13 +447,9 @@ def save_results(
     results.to_csv(RESULTS_DIR / "relevance_measures.csv", index=False)
     print(f"Saved relevance measures to {RESULTS_DIR / 'relevance_measures.csv'}")
 
-    # Save degree analysis
-    degree_analysis.to_csv(RESULTS_DIR / "degree_analysis.csv", index=False)
-    print(f"Saved degree analysis to {RESULTS_DIR / 'degree_analysis.csv'}")
-
-    # Save RW vs degree probability comparison
-    rw_degree_comparison.to_csv(RESULTS_DIR / "rw_degree_comparison.csv", index=False)
-    print(f"Saved RW-degree comparison to {RESULTS_DIR / 'rw_degree_comparison.csv'}")
+    # Save combined degree and random walk analysis
+    degree_rw_analysis.to_csv(RESULTS_DIR / "degree_rw_analysis.csv", index=False)
+    print(f"Saved degree & RW analysis to {RESULTS_DIR / 'degree_rw_analysis.csv'}")
 
     # Save unweighted flattened network as CSV for Gephi
     edges_list = []
@@ -596,8 +565,7 @@ def main():
 
     (
         results,
-        degree_analysis,
-        rw_degree_comparison,
+        degree_rw_analysis,
         flattened_unweighted,
         flattened_weighted,
         original_stats,
@@ -608,8 +576,7 @@ def main():
 
     save_results(
         results,
-        degree_analysis,
-        rw_degree_comparison,
+        degree_rw_analysis,
         flattened_unweighted,
         flattened_weighted,
         original_stats,
