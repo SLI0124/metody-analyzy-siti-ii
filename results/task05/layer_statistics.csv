@@ -1,4 +1,4 @@
-,nodes,edges,density,avg_degree
+,actors,edges,density,avg_degree
 lunch,60.0,193.0,0.109,6.4333
 facebook,32.0,124.0,0.25,7.75
 coauthor,25.0,21.0,0.07,1.68
