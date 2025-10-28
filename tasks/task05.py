@@ -1,10 +1,10 @@
 from pathlib import Path
-
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from itertools import combinations
 
 plt.style.use("default")
 sns.set_palette("husl")
@@ -20,7 +20,7 @@ def load_data():
     edges_df = pd.read_csv(
         DATA_DIR / "CS-Aarhus_multiplex.edges",
         sep=" ",
-        names=["layerID", "nodeID1", "nodeID2", "weight"],
+        names=["layerID", "actorID1", "actorID2", "weight"],
     )
     return layers_df, nodes_df, edges_df
 
@@ -33,58 +33,55 @@ def build_networks(edges_df, layers_df):
         layer_edges = edges_df[edges_df["layerID"] == layer_id]
         graph = nx.Graph()
         for _, row in layer_edges.iterrows():
-            graph.add_edge(row["nodeID1"], row["nodeID2"], weight=row["weight"])
+            graph.add_edge(row["actorID1"], row["actorID2"], weight=row["weight"])
         layer_networks[layer_names[layer_id]] = graph
 
-    graph_unweighted = nx.Graph()
-    for _, row in edges_df.iterrows():
-        graph_unweighted.add_edge(row["nodeID1"], row["nodeID2"])
-
-    return layer_networks, graph_unweighted
+    return layer_networks
 
 
-def compute_required_measures(layer_networks, nodes_df):
+def get_actor_neighbors(actor_id, graphs):
+    neighbors = set()
+    for graph in graphs:
+        if actor_id in graph:
+            neighbors.update(graph.neighbors(actor_id))
+    return neighbors
+
+
+def compute_measures(layer_networks, nodes_df):
+    print("Computing multilayer measures...")
+
     results = pd.DataFrame(
-        {"nodeID": nodes_df["nodeID"], "nodeLabel": nodes_df["nodeLabel"]}
+        {"actorID": nodes_df["nodeID"], "actorLabel": nodes_df["nodeLabel"]}
     )
 
-    all_layers = set(layer_networks.keys())
+    layer_names = list(layer_networks.keys())
 
-    # Degree centrality per layer
-    degree_dicts = {}
+    # Basic degree measures
     for layer_name, graph in layer_networks.items():
-        degree_dicts[layer_name] = dict(graph.degree())
-        results[f"degree_{layer_name}"] = results["nodeID"].map(
-            lambda x, d=degree_dicts[layer_name]: d.get(x, 0)
+        degree_dict = dict(graph.degree())
+        results[f"degree_{layer_name}"] = results["actorID"].map(
+            lambda x: degree_dict.get(x, 0)
         )
 
-    layer_columns = [f"degree_{layer}" for layer in layer_networks.keys()]
+    degree_columns = [f"degree_{layer}" for layer in layer_names]
+    results["degree_all_layers"] = results[degree_columns].sum(axis=1)
+    results["degree_deviation"] = results[degree_columns].std(axis=1)
 
-    # Degree deviation (standard deviation across layers)
-    results["degree_deviation"] = results[layer_columns].std(axis=1)
-
-    # Neighborhood centrality - distinct neighbors per layer
-    neighbors_dicts = {}
+    # Neighborhood measures
     for layer_name, graph in layer_networks.items():
-        neighbors_dicts[layer_name] = {
-            node: set(graph.neighbors(node)) for node in graph.nodes()
+        neighbors_dict = {
+            actor: len(set(graph.neighbors(actor))) if actor in graph else 0
+            for actor in results["actorID"]
         }
-        results[f"neighborhood_{layer_name}"] = results["nodeID"].map(
-            lambda x, nd=neighbors_dicts[layer_name]: len(nd.get(x, set()))
-        )
+        results[f"neighborhood_{layer_name}"] = results["actorID"].map(neighbors_dict)
 
-    # Total neighborhood across all layers (distinct neighbors)
-    def get_all_neighbors(node_id):
-        all_neighbors = set()
-        for graph in layer_networks.values():
-            if node_id in graph:
-                all_neighbors.update(graph.neighbors(node_id))
-        return len(all_neighbors)
+    # Total neighborhood across all layers
+    def get_total_neighbors(actor_id):
+        return len(get_actor_neighbors(actor_id, layer_networks.values()))
 
-    results["neighborhood_all_layers"] = results["nodeID"].apply(get_all_neighbors)
+    results["neighborhood_all_layers"] = results["actorID"].apply(get_total_neighbors)
 
-    # Connective redundancy: 1 - (neighborhood / degree)
-    results["degree_all_layers"] = results[layer_columns].sum(axis=1)
+    # Connective redundancy
     results["connective_redundancy"] = results.apply(
         lambda row: (
             1 - (row["neighborhood_all_layers"] / row["degree_all_layers"])
@@ -94,156 +91,54 @@ def compute_required_measures(layer_networks, nodes_df):
         axis=1,
     )
 
-    # Exclusive neighborhood - neighbors in specific layers but not in others
-    for layer_name, graph in layer_networks.items():
-        other_layer_set = all_layers - {layer_name}
-
-        def get_exclusive_neighbors(
-            node_id, target_graph=graph, other_layers=other_layer_set
-        ):
-            if node_id not in target_graph:
-                return 0
-
-            layer_neighbors = set(target_graph.neighbors(node_id))
-            other_neighbors = set()
-
-            for other_layer in other_layers:
-                other_graph = layer_networks[other_layer]
-                if node_id in other_graph:
-                    other_neighbors.update(other_graph.neighbors(node_id))
-
-            exclusive = layer_neighbors - other_neighbors
-            return len(exclusive)
-
-        results[f"exclusive_neighborhood_{layer_name}"] = results["nodeID"].apply(
-            get_exclusive_neighbors
-        )
-
-    # Add neighborhood centrality and connective redundancy for layer combinations
-    layer_list = list(layer_networks.keys())
-
-    # For pairs of layers
-    for i in range(len(layer_list)):
-        for j in range(i + 1, len(layer_list)):
-            layer1, layer2 = layer_list[i], layer_list[j]
-            layer_combo = f"{layer1}_{layer2}"
-
-            def get_combo_neighbors(node_id, l1=layer1, l2=layer2):
-                neighbors_set = set()
-                if node_id in layer_networks[l1]:
-                    neighbors_set.update(layer_networks[l1].neighbors(node_id))
-                if node_id in layer_networks[l2]:
-                    neighbors_set.update(layer_networks[l2].neighbors(node_id))
-                return len(neighbors_set)
-
-            results[f"neighborhood_{layer_combo}"] = results["nodeID"].apply(
-                get_combo_neighbors
-            )
-
-            # Connective redundancy for this layer combination
-            degree_combo = results[f"degree_{layer1}"] + results[f"degree_{layer2}"]
-            results[f"connective_redundancy_{layer_combo}"] = results.apply(
-                lambda row, combo=layer_combo, deg_combo=degree_combo: (
-                    1 - (row[f"neighborhood_{combo}"] / deg_combo[row.name])
-                    if deg_combo[row.name] > 0
-                    else 0
-                ),
-                axis=1,
-            )
-
-    # For triplets of layers
-    for i in range(len(layer_list)):
-        for j in range(i + 1, len(layer_list)):
-            for k in range(j + 1, len(layer_list)):
-                layer1, layer2, layer3 = layer_list[i], layer_list[j], layer_list[k]
-                layer_combo = f"{layer1}_{layer2}_{layer3}"
-
-                def get_triplet_neighbors(node_id, l1=layer1, l2=layer2, l3=layer3):
-                    neighbors_set = set()
-                    if node_id in layer_networks[l1]:
-                        neighbors_set.update(layer_networks[l1].neighbors(node_id))
-                    if node_id in layer_networks[l2]:
-                        neighbors_set.update(layer_networks[l2].neighbors(node_id))
-                    if node_id in layer_networks[l3]:
-                        neighbors_set.update(layer_networks[l3].neighbors(node_id))
-                    return len(neighbors_set)
-
-                results[f"neighborhood_{layer_combo}"] = results["nodeID"].apply(
-                    get_triplet_neighbors
-                )
-
-                # Connective redundancy for this layer combination
-                degree_combo = (
-                    results[f"degree_{layer1}"]
-                    + results[f"degree_{layer2}"]
-                    + results[f"degree_{layer3}"]
-                )
-                results[f"connective_redundancy_{layer_combo}"] = results.apply(
-                    lambda row, combo=layer_combo, deg_combo=degree_combo: (
-                        1 - (row[f"neighborhood_{combo}"] / deg_combo[row.name])
-                        if deg_combo[row.name] > 0
-                        else 0
-                    ),
-                    axis=1,
-                )
-
-    # For quadruplets of layers
-    for i in range(len(layer_list)):
-        for j in range(i + 1, len(layer_list)):
-            for k in range(j + 1, len(layer_list)):
-                for l in range(k + 1, len(layer_list)):
-                    layer1, layer2, layer3, layer4 = (
-                        layer_list[i],
-                        layer_list[j],
-                        layer_list[k],
-                        layer_list[l],
-                    )
-                    layer_combo = f"{layer1}_{layer2}_{layer3}_{layer4}"
-
-                    def get_quadruplet_neighbors(
-                        node_id, l1=layer1, l2=layer2, l3=layer3, l4=layer4
-                    ):
-                        neighbors_set = set()
-                        if node_id in layer_networks[l1]:
-                            neighbors_set.update(layer_networks[l1].neighbors(node_id))
-                        if node_id in layer_networks[l2]:
-                            neighbors_set.update(layer_networks[l2].neighbors(node_id))
-                        if node_id in layer_networks[l3]:
-                            neighbors_set.update(layer_networks[l3].neighbors(node_id))
-                        if node_id in layer_networks[l4]:
-                            neighbors_set.update(layer_networks[l4].neighbors(node_id))
-                        return len(neighbors_set)
-
-                    results[f"neighborhood_{layer_combo}"] = results["nodeID"].apply(
-                        get_quadruplet_neighbors
-                    )
-
-                    # Connective redundancy for this layer combination
-                    degree_combo = (
-                        results[f"degree_{layer1}"]
-                        + results[f"degree_{layer2}"]
-                        + results[f"degree_{layer3}"]
-                        + results[f"degree_{layer4}"]
-                    )
-                    results[f"connective_redundancy_{layer_combo}"] = results.apply(
-                        lambda row, combo=layer_combo, deg_combo=degree_combo: (
-                            1 - (row[f"neighborhood_{combo}"] / deg_combo[row.name])
-                            if deg_combo[row.name] > 0
-                            else 0
-                        ),
-                        axis=1,
-                    )
-
-    # Add connective redundancy for individual layers
-    for layer_name in layer_networks.keys():
+    # Individual layer connective redundancy
+    for layer_name in layer_names:
         results[f"connective_redundancy_{layer_name}"] = results.apply(
-            lambda row, layer=layer_name: (
-                1 - (row[f"neighborhood_{layer}"] / row[f"degree_{layer}"])
-                if row[f"degree_{layer}"] > 0
+            lambda row: (
+                1 - (row[f"neighborhood_{layer_name}"] / row[f"degree_{layer_name}"])
+                if row[f"degree_{layer_name}"] > 0
                 else 0
             ),
             axis=1,
         )
+
+    # Exclusive neighborhood
+    for layer_name, graph in layer_networks.items():
+        other_graphs = [g for name, g in layer_networks.items() if name != layer_name]
+
+        def get_exclusive(actor_id):
+            if actor_id not in graph:
+                return 0
+            layer_neighbors = set(graph.neighbors(actor_id))
+            other_neighbors = get_actor_neighbors(actor_id, other_graphs)
+            return len(layer_neighbors - other_neighbors)
+
+        results[f"exclusive_neighborhood_{layer_name}"] = results["actorID"].apply(
+            get_exclusive
+        )
+
+    # Layer combinations
+    for r in range(2, len(layer_names) + 1):
+        for combo in combinations(layer_names, r):
+            combo_name = "_".join(combo)
+            combo_graphs = [layer_networks[layer] for layer in combo]
+
+            def get_combo_neighbors(actor_id):
+                return len(get_actor_neighbors(actor_id, combo_graphs))
+
+            results[f"neighborhood_{combo_name}"] = results["actorID"].apply(
+                get_combo_neighbors
+            )
+
+            degree_sum = sum(results[f"degree_{layer}"] for layer in combo)
+            results[f"connective_redundancy_{combo_name}"] = results.apply(
+                lambda row, combo=combo_name: (
+                    1 - (row[f"neighborhood_{combo}"] / degree_sum[row.name])
+                    if degree_sum[row.name] > 0
+                    else 0
+                ),
+                axis=1,
+            )
 
     return results
 
@@ -252,11 +147,11 @@ def analyze_layers(layer_networks):
     stats = {}
     for layer_name, graph in layer_networks.items():
         stats[layer_name] = {
-            "nodes": graph.number_of_nodes(),
+            "actors": graph.number_of_nodes(),
             "edges": graph.number_of_edges(),
             "density": nx.density(graph),
             "avg_degree": (
-                sum(dict(graph.degree()).values()) / graph.number_of_nodes()
+                np.mean(list(dict(graph.degree()).values()))
                 if graph.number_of_nodes() > 0
                 else 0
             ),
@@ -264,12 +159,12 @@ def analyze_layers(layer_networks):
     return pd.DataFrame(stats).T.round(4)
 
 
-def plot_layer_basics(layer_stats_df):
+def plot_layer_comparison(layer_stats_df):
     _, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
     layers = layer_stats_df.index
     ax1.bar(layers, layer_stats_df["edges"])
-    ax1.set_title("Number of Edges per Layer")
+    ax1.set_title("Edges per Layer")
     ax1.set_ylabel("Number of Edges")
     ax1.tick_params(axis="x", rotation=45)
 
@@ -285,8 +180,7 @@ def plot_layer_basics(layer_stats_df):
 
 def plot_degree_distributions(results, layer_networks):
     layer_columns = [f"degree_{layer}" for layer in layer_networks.keys()]
-
-    num_plots = len(layer_columns) + 1  # +1 for aggregated
+    num_plots = len(layer_columns) + 1
     cols = 3
     rows = (num_plots + cols - 1) // cols
 
@@ -298,30 +192,17 @@ def plot_degree_distributions(results, layer_networks):
     for i, col in enumerate(layer_columns):
         layer_name = col.replace("degree_", "")
         degree_values = results[col]
-        axes[i].hist(
-            degree_values,
-            bins=range(0, int(max(degree_values)) + 2),
-            alpha=0.7,
-            edgecolor="black",
-        )
-        axes[i].set_title(f"{layer_name.capitalize()} Layer Degree Distribution")
+        axes[i].hist(degree_values, bins=30, alpha=0.7, edgecolor="black")
+        axes[i].set_title(f"{layer_name.capitalize()} Layer")
         axes[i].set_xlabel("Degree")
         axes[i].set_ylabel("Frequency")
-        axes[i].grid(True, alpha=0.3)
 
-    # Add aggregated network degree distribution
-    agg_index = len(layer_columns)
-    axes[agg_index].hist(
-        results["degree_all_layers"],
-        bins=range(0, int(max(results["degree_all_layers"])) + 2),
-        alpha=0.7,
-        edgecolor="black",
-        color="red",
+    axes[len(layer_columns)].hist(
+        results["degree_all_layers"], bins=30, alpha=0.7, edgecolor="black", color="red"
     )
-    axes[agg_index].set_title("Aggregated Network Degree Distribution")
-    axes[agg_index].set_xlabel("Degree")
-    axes[agg_index].set_ylabel("Frequency")
-    axes[agg_index].grid(True, alpha=0.3)
+    axes[len(layer_columns)].set_title("Aggregated Network")
+    axes[len(layer_columns)].set_xlabel("Degree")
+    axes[len(layer_columns)].set_ylabel("Frequency")
 
     for i in range(num_plots, len(axes)):
         axes[i].set_visible(False)
@@ -334,8 +215,6 @@ def plot_degree_distributions(results, layer_networks):
 def plot_correlations(results, layer_networks):
     layer_columns = [f"degree_{layer}" for layer in layer_networks.keys()]
     correlation_data = results[layer_columns].corr()
-
-    # Create mask for upper triangle
     mask = np.triu(np.ones_like(correlation_data, dtype=bool))
 
     plt.figure(figsize=(10, 8))
@@ -347,38 +226,33 @@ def plot_correlations(results, layer_networks):
         center=0,
         square=True,
         fmt=".3f",
-        cbar_kws={"shrink": 0.8},
     )
     plt.title("Degree Correlation Between Layers")
     plt.tight_layout()
-    plt.savefig(
-        RESULTS_DIR / "degree_correlation_heatmap.png", dpi=300, bbox_inches="tight"
-    )
+    plt.savefig(RESULTS_DIR / "degree_correlation.png", dpi=300, bbox_inches="tight")
     plt.close()
 
 
-def plot_top_nodes_and_activity(results, layer_networks):
+def plot_top_actors(results, layer_networks):
     _, axes = plt.subplots(1, 2, figsize=(16, 6))
 
-    # Top 10 nodes by total degree
-    top_nodes = results.nlargest(10, "degree_all_layers")
-    axes[0].barh(range(len(top_nodes)), top_nodes["degree_all_layers"])
-    axes[0].set_yticks(range(len(top_nodes)))
-    axes[0].set_yticklabels(top_nodes["nodeLabel"])
-    axes[0].set_title("Top 10 Nodes by Total Degree")
+    top_actors = results.nlargest(10, "degree_all_layers")
+    axes[0].barh(range(len(top_actors)), top_actors["degree_all_layers"])
+    axes[0].set_yticks(range(len(top_actors)))
+    axes[0].set_yticklabels(top_actors["actorLabel"])
+    axes[0].set_title("Top 10 Actors by Total Degree")
     axes[0].invert_yaxis()
 
-    # Layer activity distribution
     layer_cols = [f"degree_{layer}" for layer in layer_networks.keys()]
     layer_activity = results[layer_cols].sum()
     layer_activity.index = [
         col.replace("degree_", "").capitalize() for col in layer_activity.index
     ]
     axes[1].pie(layer_activity.values, labels=layer_activity.index, autopct="%1.1f%%")
-    axes[1].set_title("Layer Activity Distribution")
+    axes[1].set_title("Activity Distribution Across Layers")
 
     plt.tight_layout()
-    plt.savefig(RESULTS_DIR / "top_nodes_activity.png", dpi=300, bbox_inches="tight")
+    plt.savefig(RESULTS_DIR / "top_actors.png", dpi=300, bbox_inches="tight")
     plt.close()
 
 
@@ -402,13 +276,13 @@ def plot_network_overview(layer_networks):
             with_labels=False,
         )
         axes[i].set_title(
-            f"{layer_name.capitalize()}\n{graph.number_of_nodes()} nodes, "
+            f"{layer_name.capitalize()}\n{graph.number_of_nodes()} actors, "
             f"{graph.number_of_edges()} edges"
         )
 
     # Aggregated network
     graph_agg = nx.Graph()
-    for layer_name, graph in layer_networks.items():
+    for graph in layer_networks.values():
         graph_agg.add_edges_from(graph.edges())
 
     pos = nx.spring_layout(graph_agg, k=1, iterations=50, seed=42)
@@ -426,7 +300,7 @@ def plot_network_overview(layer_networks):
         with_labels=False,
     )
     axes[5].set_title(
-        f"Aggregated\n{graph_agg.number_of_nodes()} nodes, "
+        f"Aggregated\n{graph_agg.number_of_nodes()} actors, "
         f"{graph_agg.number_of_edges()} edges"
     )
 
@@ -437,7 +311,7 @@ def plot_network_overview(layer_networks):
 
 def plot_edge_overlap(layer_networks):
     layer_names = list(layer_networks.keys())
-    layer_edges = {name: set(G.edges()) for name, G in layer_networks.items()}
+    layer_edges = {name: set(graph.edges()) for name, graph in layer_networks.items()}
     overlap_matrix = np.zeros((len(layer_names), len(layer_names)))
 
     for i, l1 in enumerate(layer_names):
@@ -447,7 +321,6 @@ def plot_edge_overlap(layer_networks):
                 union = len(layer_edges[l1] | layer_edges[l2])
                 overlap_matrix[i, j] = intersection / union if union > 0 else 0
 
-    # Create mask for upper triangle
     mask = np.triu(np.ones_like(overlap_matrix, dtype=bool))
 
     plt.figure(figsize=(10, 8))
@@ -460,70 +333,31 @@ def plot_edge_overlap(layer_networks):
         cmap="Blues",
         fmt=".2f",
         square=True,
-        cbar_kws={"shrink": 0.8},
     )
-    plt.title("Edge Overlap (Jaccard)")
+    plt.title("Edge Overlap (Jaccard Index)")
     plt.tight_layout()
     plt.savefig(RESULTS_DIR / "edge_overlap.png", dpi=300, bbox_inches="tight")
     plt.close()
 
 
-def plot_path_lengths(layer_networks):
-    structure_data = []
-    for layer_name, graph in layer_networks.items():
-        if nx.is_connected(graph):
-            diameter = nx.diameter(graph)
-            avg_path = nx.average_shortest_path_length(graph)
-        else:
-            if graph.number_of_nodes() > 1:
-                largest_cc = max(nx.connected_components(graph), key=len)
-                subgraph = graph.subgraph(largest_cc)
-                diameter = (
-                    nx.diameter(subgraph) if subgraph.number_of_nodes() > 1 else 0
-                )
-                avg_path = (
-                    nx.average_shortest_path_length(subgraph)
-                    if subgraph.number_of_nodes() > 1
-                    else 0
-                )
-            else:
-                diameter = avg_path = 0
-        structure_data.append((layer_name, diameter, avg_path))
-
-    x = np.arange(len(structure_data))
-    diameters = [d[1] for d in structure_data]
-    avg_paths = [d[2] for d in structure_data]
-
-    plt.figure(figsize=(10, 6))
-    plt.bar(x - 0.2, diameters, 0.4, label="Diameter", alpha=0.7)
-    plt.bar(x + 0.2, avg_paths, 0.4, label="Avg Path Length", alpha=0.7)
-    plt.xticks(x, [d[0].capitalize() for d in structure_data], rotation=45)
-    plt.title("Path Lengths")
-    plt.ylabel("Length")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(RESULTS_DIR / "path_lengths.png", dpi=300, bbox_inches="tight")
-    plt.close()
-
-
-def plot_top_15_heatmap(results, layer_networks):
+def plot_actor_heatmap(results, layer_networks):
     layer_cols = [f"degree_{layer}" for layer in layer_networks.keys()]
     top_15 = results.nlargest(15, "degree_all_layers")
-    heatmap_data = top_15[layer_cols].set_index(top_15["nodeLabel"])
+    heatmap_data = top_15[layer_cols].set_index(top_15["actorLabel"])
     heatmap_data.columns = [
         col.replace("degree_", "").capitalize() for col in heatmap_data.columns
     ]
 
     plt.figure(figsize=(10, 10))
     sns.heatmap(heatmap_data, annot=True, cmap="YlOrRd", fmt="d")
-    plt.title("Top 15 Nodes Across Layers")
+    plt.title("Top 15 Actors Across Layers")
     plt.tight_layout()
-    plt.savefig(RESULTS_DIR / "top_15_nodes_heatmap.png", dpi=300, bbox_inches="tight")
+    plt.savefig(RESULTS_DIR / "top_actors_heatmap.png", dpi=300, bbox_inches="tight")
     plt.close()
 
 
 def save_results(results, layer_stats_df):
-    results.to_csv(RESULTS_DIR / "multilayer_measures.csv", index=False)
+    results.to_csv(RESULTS_DIR / "actor_measures.csv", index=False)
     layer_stats_df.to_csv(RESULTS_DIR / "layer_statistics.csv")
 
 
@@ -532,51 +366,34 @@ def main():
 
     layers_df, nodes_df, edges_df = load_data()
     print(
-        f"Data loaded: {len(nodes_df)} nodes, {len(edges_df)} edges, {len(layers_df)} layers"
+        f"Loaded: {len(nodes_df)} actors, {len(edges_df)} edges, {len(layers_df)} layers"
     )
 
-    layer_networks, _ = build_networks(edges_df, layers_df)
-    print(f"✓ Networks created: {list(layer_networks.keys())}")
+    layer_networks = build_networks(edges_df, layers_df)
+    print(f"Created networks: {list(layer_networks.keys())}")
 
-    results = compute_required_measures(layer_networks, nodes_df)
-    print("✓ All required measures computed:")
-    print("  - Degree Centrality (per layer)")
-    print("  - Degree Deviation")
-    print("  - Neighborhood Centrality")
-    print("  - Connective Redundancy")
-    print("  - Exclusive Neighborhood")
-
+    results = compute_measures(layer_networks, nodes_df)
     layer_stats_df = analyze_layers(layer_networks)
-    print("✓ Layer statistics computed")
 
-    print("\nGenerating visualizations...")
-    plot_layer_basics(layer_stats_df)
-    print("  ✓ Layer comparison (edges & density)")
-
+    print("Generating visualizations...")
+    plot_layer_comparison(layer_stats_df)
+    print("Layer comparison plot saved.")
     plot_degree_distributions(results, layer_networks)
-    print("  ✓ Degree distributions")
-
+    print("Degree distributions plot saved.")
     plot_correlations(results, layer_networks)
-    print("  ✓ Layer correlations")
-
-    plot_top_nodes_and_activity(results, layer_networks)
-    print("  ✓ Top 10 nodes & layer activity")
-
+    print("Correlations plot saved.")
+    plot_top_actors(results, layer_networks)
+    print("Top actors plot saved.")
     plot_network_overview(layer_networks)
-    print("  ✓ Network overview")
-
+    print("Network overview plot saved.")
     plot_edge_overlap(layer_networks)
-    print("  ✓ Edge overlap")
-
-    plot_path_lengths(layer_networks)
-    print("  ✓ Path lengths")
-
-    plot_top_15_heatmap(results, layer_networks)
-    print("  ✓ Top 15 nodes heatmap")
+    print("Edge overlap plot saved.")
+    plot_actor_heatmap(results, layer_networks)
+    print("Actor heatmap plot saved.")
 
     save_results(results, layer_stats_df)
-    print(f"\n✓ Results saved to {RESULTS_DIR}/")
-    print("\nDone!")
+    print(f"Results saved to {RESULTS_DIR}/")
+    print("Analysis complete!")
 
 
 if __name__ == "__main__":
