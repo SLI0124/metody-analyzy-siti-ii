@@ -4,3 +4,4 @@ networkx
 pandas
 scikit-learn
 seaborn
+python-igraph
