@@ -374,7 +374,7 @@ def community_detection_and_plot(flattened, pos, combo_name):
         for n in comm:
             node_color[n] = cmap[idx]
 
-    plt.figure(figsize=(9, 7))
+    plt.figure(figsize=(11, 7))
     degrees = dict(flattened.degree())
     sizes = [140 + (degrees.get(n, 0) ** 1.1) * 18 for n in flattened.nodes()]
     nx.draw_networkx_nodes(
@@ -386,6 +386,7 @@ def community_detection_and_plot(flattened, pos, combo_name):
         linewidths=0.7,
     )
     # Draw node ID labels
+
     labels = {n: str(n) for n in flattened.nodes()}
     nx.draw_networkx_labels(flattened, pos, labels=labels, font_size=8)
     nx.draw_networkx_edges(flattened, pos, alpha=0.4)
@@ -566,6 +567,93 @@ def plot_ego_across_layers(layer_networks, nodes_df, pos, top_k=4):
         plt.close()
 
 
+def plot_progressive_layer_growth(layer_networks, pos):
+    """Show progressive growth by adding layers one by one."""
+    layers = list(layer_networks.keys())
+    n_layers = len(layers)
+
+    # Create a grid of subplots - make it bigger and wider
+    cols = min(2, n_layers)  # Reduce columns for more space
+    rows = (n_layers + cols - 1) // cols
+    fig, axes = plt.subplots(
+        rows, cols, figsize=(8 * cols, 6 * rows)
+    )  # Increased figure size
+
+    # Handle single subplot case
+    if n_layers == 1:
+        axes = [axes]
+    elif rows == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten()
+
+    # Create spread out positions by scaling the original layout
+    spread_pos = {}
+    for node, (x, y) in pos.items():
+        spread_pos[node] = (x * 1.5, y * 1.5)  # Scale positions for more spread
+
+    for i in range(n_layers):
+        ax = axes[i]
+
+        # Build cumulative network with layers up to index i
+        cumulative_layers = layers[: i + 1]
+        cumulative_networks = {l: layer_networks[l] for l in cumulative_layers}
+        cumulative_flat = merge_flattened(cumulative_networks, weighted=False)
+
+        # Node colors by degree
+        degrees = dict(cumulative_flat.degree())
+        max_deg = max(degrees.values()) if degrees.values() else 1
+        node_colors = [degrees.get(n, 0) / max_deg for n in cumulative_flat.nodes()]
+
+        # Node sizes proportional to degree - make them bigger
+        sizes = [100 + (degrees.get(n, 0) ** 1.1) * 25 for n in cumulative_flat.nodes()]
+
+        # Draw network with spread out positions
+        nx.draw_networkx_edges(
+            cumulative_flat, spread_pos, ax=ax, alpha=0.3, edge_color="#666"
+        )
+        nx.draw_networkx_nodes(
+            cumulative_flat,
+            spread_pos,
+            ax=ax,
+            node_size=sizes,
+            node_color=node_colors,
+            cmap=plt.cm.viridis,
+            edgecolors="black",
+            linewidths=0.7,  # Thicker outlines
+            vmin=0,
+            vmax=1,
+        )
+
+        # Add node labels for high degree nodes
+        high_deg_nodes = {
+            n: str(n) for n in cumulative_flat.nodes() if degrees.get(n, 0) >= 3
+        }
+        nx.draw_networkx_labels(
+            cumulative_flat, spread_pos, labels=high_deg_nodes, font_size=9, ax=ax
+        )
+
+        # Title with layer info
+        layer_list = " + ".join(cumulative_layers)
+        edges_count = cumulative_flat.number_of_edges()
+        nodes_count = cumulative_flat.number_of_nodes()
+        ax.set_title(
+            f"Step {i+1}: {layer_list}\n{nodes_count} nodes, {edges_count} edges",
+            fontsize=11,
+        )
+        ax.axis("off")
+
+    # Hide unused subplots
+    for i in range(n_layers, len(axes)):
+        axes[i].axis("off")
+
+    plt.suptitle("Progressive Layer Growth", fontsize=16, y=0.98)
+    plt.tight_layout()
+    out = RESULTS_DIR / "progressive_layer_growth.png"
+    plt.savefig(out, dpi=200, bbox_inches="tight")
+    plt.close()
+
+
 def main():
     print("Task07: multilayer visualizations and simple community detection")
     layers_df, nodes_df, edges_df = load_data()
@@ -585,6 +673,9 @@ def main():
     print(" - community detection on flattened and on two-layer combos...")
     # community on full flattened
     community_detection_and_plot(flattened_unweighted, pos, "all_layers")
+
+    print(" - plotting progressive layer growth...")
+    plot_progressive_layer_growth(layer_networks, pos)
 
     # two different combinations: ('facebook','work') and ('coauthor','leisure') if exist
     combos = [("facebook", "work"), ("coauthor", "leisure")]
