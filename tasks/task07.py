@@ -8,7 +8,7 @@ import pandas as pd
 import seaborn as sns
 import igraph as ig
 from matplotlib.patches import Wedge
-from networkx.algorithms.community import greedy_modularity_communities
+from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
 
 DATA_DIR = Path("../data/CS-Aarhus_Multiplex_Social/CS-Aarhus_Multiplex_Social/Dataset")
@@ -190,7 +190,7 @@ def plot_augmented_flattened(flattened_network, layer_list, layout, membership):
 
     layout_coords = [layout.get(n, (0.0, 0.0)) for n in nodes]
 
-    plt.figure(figsize=(12, 9))
+    plt.figure(figsize=(9, 7))
     pos_dict = {n: layout_coords[i] for i, n in enumerate(nodes)}
 
     nx.draw_networkx_edges(
@@ -206,7 +206,7 @@ def plot_augmented_flattened(flattened_network, layer_list, layout, membership):
         plt.scatter([], [], c=palette_hex[idx], label=layer, s=80)
     plt.legend(ncol=2, fontsize=10, frameon=False, title="Layers")
 
-    plt.title("Augmented flattened network: pies show layer membership; size ~ degree")
+    plt.title("Augmented Flattened Network")
     plt.axis("off")
     plt.tight_layout()
     plt.savefig(RESULTS_DIR / "augmented_flattened.png", dpi=200)
@@ -214,7 +214,7 @@ def plot_augmented_flattened(flattened_network, layer_list, layout, membership):
 
 
 def plot_community_detection(graph, pos, name):
-    communities = list(greedy_modularity_communities(graph))
+    communities = list(louvain_communities(graph))
     mod_score = modularity(graph, communities) if graph.number_of_edges() > 0 else 0.0
 
     cmap = sns.color_palette("husl", n_colors=max(2, len(communities)))
@@ -241,7 +241,7 @@ def plot_community_detection(graph, pos, name):
     nx.draw_networkx_labels(graph, pos, labels=labels, font_size=8)
     nx.draw_networkx_edges(graph, pos, alpha=0.4)
 
-    title = f"Communities (greedy modularity) - {name}"
+    title = f"Communities (Louvain) - {name}"
     if mod_score is not None:
         title += f"  |  modularity={mod_score:.3f}"
 
