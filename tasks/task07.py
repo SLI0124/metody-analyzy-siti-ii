@@ -334,9 +334,7 @@ def plot_progressive_growth(layer_networks, layer_list, layout):
     plt.close()
 
 
-def run_analysis() -> None:
-    print("Task07: multilayer visualizations and simple community detection")
-
+def main():
     print(" - Loading data...")
     layers_df, nodes_df, edges_df = load_data()
     layer_networks, layer_list = build_layer_graphs(layers_df, nodes_df, edges_df)
@@ -349,13 +347,17 @@ def run_analysis() -> None:
 
     print(" - Plotting augmented flattened network...")
     membership = get_node_layer_membership(layer_networks)
-    plot_augmented_flattened(flattened_network, layer_list, layout, membership)
+    # Sort layers by number of edges (ascending, smallest first)
+    layer_edge_counts = {layer: graph.number_of_edges() for layer, graph in layer_networks.items()}
+    sorted_layers = sorted(layer_list, key=lambda l: layer_edge_counts[l])
+    plot_augmented_flattened(flattened_network, sorted_layers, layout, membership)
 
     print(" - Community detection...")
     plot_community_detection(flattened_network, layout, "all_layers")
 
     print(" - Plotting progressive layer growth...")
-    plot_progressive_growth(layer_networks, layer_list, layout)
+    # Use the same sorted_layers for progressive growth
+    plot_progressive_growth(layer_networks, sorted_layers, layout)
 
     combos = [("facebook", "work"), ("coauthor", "leisure")]
     for combo in combos:
@@ -370,4 +372,4 @@ def run_analysis() -> None:
 
 
 if __name__ == "__main__":
-    run_analysis()
+    main()
