@@ -1,6 +1,5 @@
 from pathlib import Path
 from collections import defaultdict
-
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import networkx as nx
@@ -14,6 +13,16 @@ from networkx.algorithms.community.quality import modularity
 DATA_DIR = Path("../data/CS-Aarhus_Multiplex_Social/CS-Aarhus_Multiplex_Social/Dataset")
 RESULTS_DIR = Path("../results/task07")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+NETWORK_TYPES = [
+    "individual_layer",
+    "progressive_merge",
+    "combo_merge",
+    "all_layers_merged",
+]
+
+COLORS = ["#2E86C1", "#28B463", "#F39C12", "#E74C3C"]
+COLOR_MAP = dict(zip(NETWORK_TYPES, COLORS))
 
 
 def load_data():
@@ -43,15 +52,14 @@ def build_layer_graphs(layers_df, nodes_df, edges_df):
 
         layer_networks[layer_names[layer_id]] = graph
 
+    print(f"Built {len(layer_networks)} layer networks")
     return layer_networks, list(layer_names.values())
 
 
 def create_flattened_network(layer_networks, weighted=False):
     flattened = nx.Graph()
-
     for graph in layer_networks.values():
         flattened.add_nodes_from(graph.nodes())
-
         if weighted:
             for u, v, data in graph.edges(data=True):
                 weight = data.get("weight", 1.0)
@@ -63,7 +71,9 @@ def create_flattened_network(layer_networks, weighted=False):
             for u, v in graph.edges():
                 if not flattened.has_edge(u, v):
                     flattened.add_edge(u, v)
-
+    print(
+        f"Created flattened network: {flattened.number_of_nodes()} nodes, {flattened.number_of_edges()} edges"
+    )
     return flattened
 
 
@@ -81,6 +91,7 @@ def compute_layout(graph):
         ig_graph.add_edges(edges)
 
     layout = ig_graph.layout_fruchterman_reingold(niter=200)
+    print("Computed network layout")
     return {nodes[i]: (layout[i][0], layout[i][1]) for i in range(len(nodes))}
 
 
@@ -90,6 +101,7 @@ def get_node_layer_membership(layer_networks):
         for node in graph.nodes():
             if graph.degree(node) > 0:
                 membership[node].append(layer)
+    print("Computed node layer membership")
     return membership
 
 
@@ -99,7 +111,6 @@ def plot_layer_slices(layer_networks, layer_list, layout):
         degrees = dict(graph.degree())
 
         plt.figure(figsize=(9, 7))
-
         sizes = [50 + (degrees.get(n, 0) ** 1.2) * 40 for n in graph.nodes()]
         colors = [
             "#1f77b4" if degrees.get(n, 0) > 0 else "#f0f0f0" for n in graph.nodes()
@@ -123,6 +134,7 @@ def plot_layer_slices(layer_networks, layer_list, layout):
         plt.tight_layout()
         plt.savefig(RESULTS_DIR / f"layer_slice_{layer.replace(' ', '_')}.png", dpi=220)
         plt.close()
+    print(f"Plotted {len(layer_list)} layer slices")
 
 
 def draw_membership_pies(nodes, layout, membership, layers_order, palette_hex, sizes):
@@ -133,13 +145,13 @@ def draw_membership_pies(nodes, layout, membership, layers_order, palette_hex, s
         pie = [1 if layer in mem else 0 for layer in layers_order]
         total = sum(pie)
 
+        radius = 0.06 + 0.12 * (
+            (sizes[i] - min(sizes)) / (max(sizes) - min(sizes))
+            if max(sizes) > min(sizes)
+            else 1
+        )
+
         if total == 0:
-            # Draw a solid gray circle for nodes with no layer membership
-            radius = 0.06 + 0.12 * (
-                (sizes[i] - min(sizes)) / (max(sizes) - min(sizes))
-                if max(sizes) > min(sizes)
-                else 1
-            )
             circle = Wedge(
                 (x, y), radius, 0, 360, facecolor="#cccccc", ec="#222", lw=1.0
             )
@@ -147,12 +159,6 @@ def draw_membership_pies(nodes, layout, membership, layers_order, palette_hex, s
             continue
 
         fracs = [v / total for v in pie]
-        radius = 0.06 + 0.12 * (
-            (sizes[i] - min(sizes)) / (max(sizes) - min(sizes))
-            if max(sizes) > min(sizes)
-            else 1
-        )
-
         start = 0.0
         for frac, cidx in zip(fracs, range(len(fracs))):
             if frac <= 0:
@@ -175,7 +181,6 @@ def draw_membership_pies(nodes, layout, membership, layers_order, palette_hex, s
 
 def plot_augmented_flattened(flattened_network, layer_list, layout, membership):
     nodes = list(flattened_network.nodes())
-    layers_order = layer_list
     degrees = dict(flattened_network.degree())
 
     max_deg = max(degrees.values()) if degrees.values() else 1
@@ -185,9 +190,8 @@ def plot_augmented_flattened(flattened_network, layer_list, layout, membership):
         else [20] * len(nodes)
     )
 
-    palette = sns.color_palette("husl", n_colors=len(layers_order))
+    palette = sns.color_palette("husl", n_colors=len(layer_list))
     palette_hex = [mcolors.to_hex(c) for c in palette]
-
     layout_coords = [layout.get(n, (0.0, 0.0)) for n in nodes]
 
     plt.figure(figsize=(9, 7))
@@ -196,13 +200,11 @@ def plot_augmented_flattened(flattened_network, layer_list, layout, membership):
     nx.draw_networkx_edges(
         flattened_network, pos_dict, alpha=0.25, edge_color="#777777"
     )
-
-    # Draw pies as the nodes themselves
     draw_membership_pies(
-        nodes, layout_coords, membership, layers_order, palette_hex, sizes
+        nodes, layout_coords, membership, layer_list, palette_hex, sizes
     )
 
-    for idx, layer in enumerate(layers_order):
+    for idx, layer in enumerate(layer_list):
         plt.scatter([], [], c=palette_hex[idx], label=layer, s=80)
     plt.legend(ncol=2, fontsize=10, frameon=False, title="Layers")
 
@@ -211,6 +213,7 @@ def plot_augmented_flattened(flattened_network, layer_list, layout, membership):
     plt.tight_layout()
     plt.savefig(RESULTS_DIR / "augmented_flattened.png", dpi=200)
     plt.close()
+    print("Plotted augmented flattened network")
 
 
 def plot_community_detection(graph, pos, name):
@@ -224,7 +227,6 @@ def plot_community_detection(graph, pos, name):
             node_color[node] = cmap[idx]
 
     plt.figure(figsize=(11, 7))
-
     degrees = dict(graph.degree())
     sizes = [140 + (degrees.get(n, 0) ** 1.1) * 18 for n in graph.nodes()]
 
@@ -250,14 +252,15 @@ def plot_community_detection(graph, pos, name):
     plt.tight_layout()
     plt.savefig(RESULTS_DIR / f"communities_{name.replace(' ', '_')}.png", dpi=200)
     plt.close()
+    print(f"Plotted community detection for {name}")
+
+    return mod_score, len(communities)
 
 
 def merge_networks(networks, weighted=False):
     merged = nx.Graph()
-
     for graph in networks.values():
         merged.add_nodes_from(graph.nodes())
-
         if weighted:
             for u, v, data in graph.edges(data=True):
                 weight = data.get("weight", 1.0)
@@ -269,7 +272,6 @@ def merge_networks(networks, weighted=False):
             for u, v in graph.edges():
                 if not merged.has_edge(u, v):
                     merged.add_edge(u, v)
-
     return merged
 
 
@@ -313,9 +315,7 @@ def plot_growth_step(cumulative_layers, layer_networks, spread_pos, step):
 
 
 def plot_progressive_growth(layer_networks, layer_list, layout):
-    layers = layer_list
-    n_layers = len(layers)
-
+    n_layers = len(layer_list)
     cols = min(2, n_layers)
     rows = (n_layers + cols - 1) // cols
     plt.figure(figsize=(8 * cols, 6 * rows))
@@ -324,7 +324,7 @@ def plot_progressive_growth(layer_networks, layer_list, layout):
 
     for i in range(n_layers):
         plt.subplot(rows, cols, i + 1)
-        plot_growth_step(layers[: i + 1], layer_networks, spread_pos, i + 1)
+        plot_growth_step(layer_list[: i + 1], layer_networks, spread_pos, i + 1)
 
     plt.suptitle("Progressive Layer Growth", fontsize=16, y=0.98)
     plt.tight_layout()
@@ -332,32 +332,257 @@ def plot_progressive_growth(layer_networks, layer_list, layout):
         RESULTS_DIR / "progressive_layer_growth.png", dpi=200, bbox_inches="tight"
     )
     plt.close()
+    print("Plotted progressive layer growth")
+
+
+def calculate_modularity_statistics(layer_networks, flattened_network):
+    modularity_stats = []
+
+    # Individual layers
+    for layer_name, graph in layer_networks.items():
+        if graph.number_of_edges() > 0:
+            communities = list(louvain_communities(graph))
+            mod_score = modularity(graph, communities)
+            community_sizes = [len(comm) for comm in communities]
+            modularity_stats.append(
+                {
+                    "network_type": "individual_layer",
+                    "network_name": layer_name,
+                    "modularity": mod_score,
+                    "num_communities": len(communities),
+                    "num_nodes": graph.number_of_nodes(),
+                    "num_edges": graph.number_of_edges(),
+                    "community_sizes": community_sizes,
+                    "avg_community_size": (
+                        sum(community_sizes) / len(community_sizes)
+                        if community_sizes
+                        else 0
+                    ),
+                    "max_community_size": (
+                        max(community_sizes) if community_sizes else 0
+                    ),
+                    "min_community_size": (
+                        min(community_sizes) if community_sizes else 0
+                    ),
+                }
+            )
+
+    # All layers merged
+    if flattened_network.number_of_edges() > 0:
+        communities = list(louvain_communities(flattened_network))
+        mod_score = modularity(flattened_network, communities)
+        community_sizes = [len(comm) for comm in communities]
+        modularity_stats.append(
+            {
+                "network_type": "all_layers_merged",
+                "network_name": "all_layers",
+                "modularity": mod_score,
+                "num_communities": len(communities),
+                "num_nodes": flattened_network.number_of_nodes(),
+                "num_edges": flattened_network.number_of_edges(),
+                "community_sizes": community_sizes,
+                "avg_community_size": (
+                    sum(community_sizes) / len(community_sizes)
+                    if community_sizes
+                    else 0
+                ),
+                "max_community_size": max(community_sizes) if community_sizes else 0,
+                "min_community_size": min(community_sizes) if community_sizes else 0,
+            }
+        )
+
+    # Progressive layer combinations
+    layer_list = list(layer_networks.keys())
+    layer_edge_counts = {
+        layer: graph.number_of_edges() for layer, graph in layer_networks.items()
+    }
+    sorted_layers = sorted(layer_list, key=lambda l: layer_edge_counts[l])
+
+    for i in range(1, len(sorted_layers) + 1):
+        cumulative_layers = sorted_layers[:i]
+        cumulative_networks = {
+            layer: layer_networks[layer] for layer in cumulative_layers
+        }
+        cumulative_flat = merge_networks(cumulative_networks)
+
+        if cumulative_flat.number_of_edges() > 0:
+            communities = list(louvain_communities(cumulative_flat))
+            mod_score = modularity(cumulative_flat, communities)
+            community_sizes = [len(comm) for comm in communities]
+            modularity_stats.append(
+                {
+                    "network_type": "progressive_merge",
+                    "network_name": f"layers_1_to_{i}",
+                    "layers_included": "+".join(cumulative_layers),
+                    "modularity": mod_score,
+                    "num_communities": len(communities),
+                    "num_nodes": cumulative_flat.number_of_nodes(),
+                    "num_edges": cumulative_flat.number_of_edges(),
+                    "community_sizes": community_sizes,
+                    "avg_community_size": (
+                        sum(community_sizes) / len(community_sizes)
+                        if community_sizes
+                        else 0
+                    ),
+                    "max_community_size": (
+                        max(community_sizes) if community_sizes else 0
+                    ),
+                    "min_community_size": (
+                        min(community_sizes) if community_sizes else 0
+                    ),
+                }
+            )
+
+    # Specific layer combinations
+    combos = [("facebook", "work"), ("coauthor", "leisure")]
+    for combo in combos:
+        existing = [layer for layer in combo if layer in layer_networks]
+        if len(existing) >= 2:
+            sub_networks = {layer: layer_networks[layer] for layer in existing}
+            flat_sub = merge_networks(sub_networks)
+
+            if flat_sub.number_of_edges() > 0:
+                communities = list(louvain_communities(flat_sub))
+                mod_score = modularity(flat_sub, communities)
+                community_sizes = [len(comm) for comm in communities]
+                modularity_stats.append(
+                    {
+                        "network_type": "combo_merge",
+                        "network_name": "_".join(existing),
+                        "layers_included": "+".join(existing),
+                        "modularity": mod_score,
+                        "num_communities": len(communities),
+                        "num_nodes": flat_sub.number_of_nodes(),
+                        "num_edges": flat_sub.number_of_edges(),
+                        "community_sizes": community_sizes,
+                        "avg_community_size": (
+                            sum(community_sizes) / len(community_sizes)
+                            if community_sizes
+                            else 0
+                        ),
+                        "max_community_size": (
+                            max(community_sizes) if community_sizes else 0
+                        ),
+                        "min_community_size": (
+                            min(community_sizes) if community_sizes else 0
+                        ),
+                    }
+                )
+
+    print(f"Calculated modularity statistics for {len(modularity_stats)} networks")
+    return modularity_stats
+
+
+def create_analysis_plots(df):
+    plt.style.use("default")
+    _, axes = plt.subplots(1, 2, figsize=(14, 6), constrained_layout=True)
+
+    # Individual layer modularity (left)
+    individual_data = df[df["network_type"] == "individual_layer"].sort_values(
+        "modularity", ascending=True
+    )
+    ax_left = axes[0]
+    if not individual_data.empty:
+        ax_left.barh(
+            range(len(individual_data)),
+            individual_data["modularity"],
+            color=COLOR_MAP["individual_layer"],
+            alpha=0.85,
+        )
+        ax_left.set_yticks(range(len(individual_data)))
+        ax_left.set_yticklabels(individual_data["network_name"])
+        ax_left.set_xlabel("Modularity Score", fontweight="bold")
+        ax_left.set_title("Individual Layer Modularity", fontweight="bold")
+        ax_left.grid(axis="x", alpha=0.25)
+        for i, val in enumerate(individual_data["modularity"]):
+            ax_left.text(val + 0.005, i, f"{val:.3f}", va="center", fontsize=9)
+
+    # Progressive merge trend (right)
+    ax_right = axes[1]
+    progressive_data = df[df["network_type"] == "progressive_merge"].sort_values(
+        "num_edges"
+    )
+    if not progressive_data.empty:
+        x = list(range(1, len(progressive_data) + 1))
+        y = progressive_data["modularity"].tolist()
+        ax_right.plot(x, y, "o-", color=COLOR_MAP["progressive_merge"], linewidth=2)
+        ax_right.set_xlabel("Progressive Merge Step", fontweight="bold")
+        ax_right.set_ylabel("Modularity Score", fontweight="bold")
+        ax_right.set_title(
+            "Modularity Decline in Progressive Merging", fontweight="bold"
+        )
+        ax_right.grid(True, alpha=0.25)
+
+        # simple step labels (short)
+        step_labels = []
+        for i, layers in enumerate(progressive_data.get("layers_included", [])):
+            layer_names = layers.split("+") if isinstance(layers, str) else []
+            label = (
+                "+".join(layer_names)
+                if len(layer_names) <= 2
+                else f"{len(layer_names)} layers"
+            )
+            step_labels.append(f"Step {i+1}: {label}")
+
+        ax_right.set_xticks(x)
+        ax_right.set_xticklabels(step_labels, rotation=30, ha="right", fontsize=8)
+        for xi, yi in zip(x, y):
+            ax_right.text(
+                xi, yi + 0.01, f"{yi:.3f}", ha="center", va="bottom", fontsize=8
+            )
+
+    plt.savefig(RESULTS_DIR / "modularity_analysis.png", dpi=200, bbox_inches="tight")
+    plt.close()
+    print("Created modularity analysis plots (individual layers + progressive merge)")
+
+
+def save_modularity_analysis(modularity_stats):
+    df = pd.DataFrame(modularity_stats)
+    df.to_csv(RESULTS_DIR / "modularity_statistics.csv", index=False)
+
+    summary_stats = []
+    for network_type in df["network_type"].unique():
+        subset = df[df["network_type"] == network_type]
+        modularity_values = subset["modularity"]
+        summary_stats.append(
+            {
+                "network_type": network_type,
+                "count": len(modularity_values),
+                "mean_modularity": modularity_values.mean(),
+                "std_modularity": modularity_values.std(),
+                "min_modularity": modularity_values.min(),
+                "max_modularity": modularity_values.max(),
+                "median_modularity": modularity_values.median(),
+            }
+        )
+
+    create_analysis_plots(df)
+    print("Saved modularity analysis and created plots")
 
 
 def main():
-    print(" - Loading data...")
     layers_df, nodes_df, edges_df = load_data()
     layer_networks, layer_list = build_layer_graphs(layers_df, nodes_df, edges_df)
 
     flattened_network = create_flattened_network(layer_networks)
     layout = compute_layout(flattened_network)
 
-    print(" - Plotting layer slices...")
     plot_layer_slices(layer_networks, layer_list, layout)
 
-    print(" - Plotting augmented flattened network...")
     membership = get_node_layer_membership(layer_networks)
-    # Sort layers by number of edges (ascending, smallest first)
-    layer_edge_counts = {layer: graph.number_of_edges() for layer, graph in layer_networks.items()}
+    layer_edge_counts = {
+        layer: graph.number_of_edges() for layer, graph in layer_networks.items()
+    }
     sorted_layers = sorted(layer_list, key=lambda l: layer_edge_counts[l])
     plot_augmented_flattened(flattened_network, sorted_layers, layout, membership)
 
-    print(" - Community detection...")
     plot_community_detection(flattened_network, layout, "all_layers")
-
-    print(" - Plotting progressive layer growth...")
-    # Use the same sorted_layers for progressive growth
     plot_progressive_growth(layer_networks, sorted_layers, layout)
+
+    modularity_stats = calculate_modularity_statistics(
+        layer_networks, flattened_network
+    )
+    save_modularity_analysis(modularity_stats)
 
     combos = [("facebook", "work"), ("coauthor", "leisure")]
     for combo in combos:
@@ -368,7 +593,8 @@ def main():
             sub_pos = {n: layout[n] for n in layout if n in flat_sub.nodes()}
             plot_community_detection(flat_sub, sub_pos, "_".join(existing))
 
-    print(f"Results saved in {RESULTS_DIR}")
+    print(f"Analysis complete. Results saved to {RESULTS_DIR}")
+    print(f"Total networks analyzed: {len(modularity_stats)}")
 
 
 if __name__ == "__main__":
