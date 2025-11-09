@@ -1,0 +1,13 @@
+Layers: lunch, facebook, coauthor, leisure, work
+Association rules: 29
+Methods: 8
+
+Avg F1 improvement: 0.0081
+Improvements: 22/40 (55.0%)
+
+Top Rules (by lift):
+20. coauthor → leisure+work (lift: 3.152)
+9. coauthor+lunch → leisure (lift: 2.469)
+7. coauthor → leisure+lunch (lift: 2.205)
+22. work+coauthor → leisure (lift: 2.006)
+4. coauthor → leisure (lift: 1.910)
