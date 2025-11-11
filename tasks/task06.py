@@ -14,20 +14,10 @@ np.random.seed(42)
 plt.style.use("default")
 sns.set_palette("husl")
 
-DATA_DIR = Path("../data/CS-Aarhus_Multiplex_Social/CS-Aarhus_Multiplex_Social/Dataset")
 RESULTS_DIR = Path("../results/task06")
 RESULTS_DIR.mkdir(exist_ok=True)
 
-
-def load_data():
-    layers_df = pd.read_csv(DATA_DIR / "CS-Aarhus_layers.txt", sep=" ")
-    nodes_df = pd.read_csv(DATA_DIR / "CS-Aarhus_nodes.txt", sep=" ")
-    edges_df = pd.read_csv(
-        DATA_DIR / "CS-Aarhus_multiplex.edges",
-        sep=" ",
-        names=["layerID", "nodeID1", "nodeID2", "weight"],
-    )
-    return layers_df, nodes_df, edges_df
+from task05 import load_data as load_multilayer_data
 
 
 def build_multilayer_network(edges_df, layers_df, nodes_df):
@@ -42,7 +32,7 @@ def build_multilayer_network(edges_df, layers_df, nodes_df):
             graph.add_node(node_id)
 
         for _, row in layer_edges.iterrows():
-            graph.add_edge(row["nodeID1"], row["nodeID2"], weight=row["weight"])
+            graph.add_edge(row["actorID1"], row["actorID2"], weight=row["weight"])
 
         layer_networks[layer_names[layer_id]] = graph
 
@@ -548,10 +538,9 @@ def save_results(
 
 
 def main():
-    print("=== TASK 6: MULTILAYER SOCIAL NETWORKS - EXTENDED ANALYSIS ===")
     print("Loading CS-Aarhus multilayer social network...")
 
-    layers_df, nodes_df, edges_df = load_data()
+    layers_df, nodes_df, edges_df = load_multilayer_data()
     layer_networks, layer_names, all_actors = build_multilayer_network(
         edges_df, layers_df, nodes_df
     )
@@ -585,8 +574,6 @@ def main():
         visit_counts,
         nodes_df,
     )
-
-    print("\n=== TASK COMPLETED SUCCESSFULLY ===")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,18 @@ import networkx as nx
 from sklearn.model_selection import KFold
 from sklearn.metrics import precision_score, recall_score, f1_score
 
+from task05 import load_data as load_multilayer_data
+from task03 import (
+    common_neighbors_score,
+    jaccard_score,
+    adar_index as adamic_adar_score,
+    preferential_attachment_score,
+    resource_allocation_index as resource_allocation_score,
+    cosine_similarity as cosine_similarity_score,
+    sorensen_index as sorensen_index_score,
+    car_based_common_neighbors as car_based_common_neighbors_score,
+)
+
 warnings.filterwarnings("ignore")
 
 DATA_DIR = Path("../data/CS-Aarhus_Multiplex_Social/CS-Aarhus_Multiplex_Social/Dataset")
@@ -29,23 +41,6 @@ for d in [RESULTS_DIR] + dirs:
     d.mkdir(parents=True, exist_ok=True)
 
 
-def load_multilayer_data():
-    layers_df = pd.read_csv(DATA_DIR / "CS-Aarhus_layers.txt", sep=" ")
-    nodes_df = pd.read_csv(DATA_DIR / "CS-Aarhus_nodes.txt", sep=" ")
-    edges_df = pd.read_csv(
-        DATA_DIR / "CS-Aarhus_multiplex.edges",
-        sep=" ",
-        names=["layerID", "nodeID1", "nodeID2", "weight"],
-    )
-
-    layer_names = dict(zip(layers_df["layerID"], layers_df["layerLabel"]))
-    print(
-        f"Loaded {len(layer_names)} layers, {len(nodes_df)} nodes, {len(edges_df)} edges"
-    )
-
-    return layers_df, nodes_df, edges_df, layer_names
-
-
 def build_layer_graphs(nodes_df, edges_df, layer_names):
     layer_networks = {}
 
@@ -55,7 +50,7 @@ def build_layer_graphs(nodes_df, edges_df, layer_names):
 
         layer_edges = edges_df[edges_df["layerID"] == layer_id]
         for _, row in layer_edges.iterrows():
-            G.add_edge(int(row["nodeID1"]), int(row["nodeID2"]), weight=row["weight"])
+            G.add_edge(int(row["actorID1"]), int(row["actorID2"]), weight=row["weight"])
 
         layer_networks[layer_name] = G
 
@@ -66,7 +61,7 @@ def get_node_pair_layers(edges_df, layer_names):
     pair_layers = defaultdict(set)
 
     for _, row in edges_df.iterrows():
-        u, v = int(row["nodeID1"]), int(row["nodeID2"])
+        u, v = int(row["actorID1"]), int(row["actorID2"])
         pair = tuple(sorted([u, v]))
         layer = layer_names[row["layerID"]]
         pair_layers[pair].add(layer)
@@ -205,64 +200,6 @@ def visualize_association_rules(rules, layer_names):
     plt.tight_layout()
     plt.savefig(RULES_DIR / "top_rules_bar.png", dpi=200, bbox_inches="tight")
     plt.close()
-
-
-# ============================================================================
-# SIMILARITY FUNCTIONS (from Task 03)
-# ============================================================================
-
-
-def common_neighbors_score(G, u, v):
-    return len(list(nx.common_neighbors(G, u, v)))
-
-
-def jaccard_score(G, u, v):
-    preds = list(nx.jaccard_coefficient(G, [(u, v)]))
-    return preds[0][2]
-
-
-def adamic_adar_score(G, u, v):
-    preds = list(nx.adamic_adar_index(G, [(u, v)]))
-    return preds[0][2]
-
-
-def preferential_attachment_score(G, u, v):
-    preds = list(nx.preferential_attachment(G, [(u, v)]))
-    return preds[0][2]
-
-
-def resource_allocation_score(G, u, v):
-    preds = list(nx.resource_allocation_index(G, [(u, v)]))
-    return preds[0][2]
-
-
-def cosine_similarity_score(G, u, v):
-    neighbors_u = set(G.neighbors(u))
-    neighbors_v = set(G.neighbors(v))
-    intersection = len(neighbors_u & neighbors_v)
-    len_u = len(neighbors_u)
-    len_v = len(neighbors_v)
-    if len_u == 0 or len_v == 0:
-        return 0.0
-    return intersection / (np.sqrt(len_u * len_v))
-
-
-def sorensen_index_score(G, u, v):
-    neighbors_u = set(G.neighbors(u))
-    neighbors_v = set(G.neighbors(v))
-    intersection = len(neighbors_u & neighbors_v)
-    total = len(neighbors_u) + len(neighbors_v)
-    if total == 0:
-        return 0.0
-    return 2 * intersection / total
-
-
-def car_based_common_neighbors_score(G, u, v):
-    if not all("community" in G.nodes[n] for n in G.nodes()):
-        for idx, node in enumerate(G.nodes()):
-            G.nodes[node]["community"] = idx % 2
-    preds = list(nx.cn_soundarajan_hopcroft(G, [(u, v)]))
-    return preds[0][2]
 
 
 def compute_cross_layer_features(
@@ -706,7 +643,8 @@ def create_overall_comparison(summary_df):
 
 
 def main():
-    _, nodes_df, edges_df, layer_names = load_multilayer_data()
+    layers_df, nodes_df, edges_df = load_multilayer_data()
+    layer_names = dict(zip(layers_df["layerID"], layers_df["layerLabel"]))
     layer_networks = build_layer_graphs(nodes_df, edges_df, layer_names)
 
     pair_layers = get_node_pair_layers(edges_df, layer_names)
@@ -897,7 +835,6 @@ def main():
             f.write(f"{i+1}. {ante} → {cons} (lift: {row['lift']:.3f})\n")
 
     print(f"\nResults saved to {RESULTS_DIR}")
-    print("Analysis complete!")
 
 
 if __name__ == "__main__":

@@ -14,6 +14,8 @@ DATA_DIR = Path("../data/CS-Aarhus_Multiplex_Social/CS-Aarhus_Multiplex_Social/D
 RESULTS_DIR = Path("../results/task07")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
+from task05 import load_data as load_multilayer_data
+
 NETWORK_TYPES = [
     "individual_layer",
     "progressive_merge",
@@ -23,17 +25,6 @@ NETWORK_TYPES = [
 
 COLORS = ["#2E86C1", "#28B463", "#F39C12", "#E74C3C"]
 COLOR_MAP = dict(zip(NETWORK_TYPES, COLORS))
-
-
-def load_data():
-    layers_df = pd.read_csv(DATA_DIR / "CS-Aarhus_layers.txt", sep=" ")
-    nodes_df = pd.read_csv(DATA_DIR / "CS-Aarhus_nodes.txt", sep=" ")
-    edges_df = pd.read_csv(
-        DATA_DIR / "CS-Aarhus_multiplex.edges",
-        sep=" ",
-        names=["layerID", "nodeID1", "nodeID2", "weight"],
-    )
-    return layers_df, nodes_df, edges_df
 
 
 def build_layer_graphs(layers_df, nodes_df, edges_df):
@@ -47,7 +38,7 @@ def build_layer_graphs(layers_df, nodes_df, edges_df):
 
         for _, row in layer_edges.iterrows():
             graph.add_edge(
-                int(row["nodeID1"]), int(row["nodeID2"]), weight=row["weight"]
+                int(row["actorID1"]), int(row["actorID2"]), weight=row["weight"]
             )
 
         layer_networks[layer_names[layer_id]] = graph
@@ -561,7 +552,7 @@ def save_modularity_analysis(modularity_stats):
 
 
 def main():
-    layers_df, nodes_df, edges_df = load_data()
+    layers_df, nodes_df, edges_df = load_multilayer_data()
     layer_networks, layer_list = build_layer_graphs(layers_df, nodes_df, edges_df)
 
     flattened_network = create_flattened_network(layer_networks)
