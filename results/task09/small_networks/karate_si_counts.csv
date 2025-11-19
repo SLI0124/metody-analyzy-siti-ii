@@ -1,0 +1,11 @@
+network,model,time_step,state,count
+Karate Club,si,0,S,32
+Karate Club,si,0,I,2
+Karate Club,si,1,S,17
+Karate Club,si,1,I,17
+Karate Club,si,2,S,6
+Karate Club,si,2,I,28
+Karate Club,si,3,S,1
+Karate Club,si,3,I,33
+Karate Club,si,4,S,0
+Karate Club,si,4,I,34

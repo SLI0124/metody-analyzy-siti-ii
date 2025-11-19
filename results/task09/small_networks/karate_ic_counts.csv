@@ -1,0 +1,13 @@
+network,model,time_step,state,count
+Karate Club,ic,0,Inactive,32
+Karate Club,ic,0,Active,2
+Karate Club,ic,1,Inactive,28
+Karate Club,ic,1,Active,6
+Karate Club,ic,2,Inactive,27
+Karate Club,ic,2,Active,7
+Karate Club,ic,3,Inactive,25
+Karate Club,ic,3,Active,9
+Karate Club,ic,4,Inactive,23
+Karate Club,ic,4,Active,11
+Karate Club,ic,5,Inactive,22
+Karate Club,ic,5,Active,12

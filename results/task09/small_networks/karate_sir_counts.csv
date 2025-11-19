@@ -1,0 +1,25 @@
+network,model,time_step,state,count
+Karate Club,sir,0,S,32
+Karate Club,sir,0,I,2
+Karate Club,sir,0,R,0
+Karate Club,sir,1,S,22
+Karate Club,sir,1,I,11
+Karate Club,sir,1,R,1
+Karate Club,sir,2,S,15
+Karate Club,sir,2,I,13
+Karate Club,sir,2,R,6
+Karate Club,sir,3,S,11
+Karate Club,sir,3,I,15
+Karate Club,sir,3,R,8
+Karate Club,sir,4,S,6
+Karate Club,sir,4,I,16
+Karate Club,sir,4,R,12
+Karate Club,sir,5,S,5
+Karate Club,sir,5,I,10
+Karate Club,sir,5,R,19
+Karate Club,sir,6,S,5
+Karate Club,sir,6,I,3
+Karate Club,sir,6,R,26
+Karate Club,sir,7,S,5
+Karate Club,sir,7,I,2
+Karate Club,sir,7,R,27
