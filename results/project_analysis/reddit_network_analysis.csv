@@ -1,0 +1,13 @@
+Metric,Value
+Number of Nodes,67180.0
+Number of Edges,339643.0
+Average Degree,10.111431973801727
+Density,7.525738678606207e-05
+Max Degree,5811.0
+Number of Components,712.0
+Size of Biggest Component,65648.0
+Average Shortest Path (Whole Network),4.075223733434065
+Diameter (Whole Network),26.0
+Average Shortest Path (Biggest Component),1.6069015398279294
+Diameter (Biggest Component),26.0
+Clustering Coefficient,0.1687098959412822
