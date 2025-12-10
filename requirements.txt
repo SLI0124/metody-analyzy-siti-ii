@@ -7,3 +7,4 @@ seaborn
 python-igraph
 tqdm
 tabulate
+python-louvain
