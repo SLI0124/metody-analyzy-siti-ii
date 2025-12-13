@@ -1,0 +1,6 @@
+combo_size,modularity_mean,modularity_std,modularity_min,modularity_max,num_communities_mean,num_communities_min,num_communities_max,num_combinations
+1,0.1206,0.0388,0.0878,0.1698,5.0,4,6,5
+2,0.0921,0.0202,0.0745,0.1429,4.5,4,5,10
+3,0.0797,0.0085,0.0681,0.0993,4.6,4,6,10
+4,0.0729,0.0051,0.0671,0.0786,4.6,4,5,5
+5,0.0683,,0.0683,0.0683,3.0,3,3,1

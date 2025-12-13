@@ -1,0 +1,32 @@
+combo_size,category_names,modularity_weighted,modularity_unweighted,communities_weighted,communities_unweighted,modularity_diff,communities_diff
+1,Processed Foods & Beverages,0.3614680916060786,0.08776819454046547,5,4,0.27369989706561315,1
+1,"Livestock, Specialty Grains & Byproducts",0.39861077743668055,0.15457610470845204,7,5,0.2440346727282285,2
+1,Animal Feed & Agricultural Byproducts,0.37188628813215463,0.16981717333901641,7,6,0.20206911479313822,1
+1,Raw Commodity Crops & Primary Processing,0.26326700062036357,0.08845819824192454,4,5,0.17480880237843904,-1
+1,Fresh Foods & Dairy Products,0.4084522249865023,0.10261898354220214,3,5,0.30583324144430013,-2
+2,"Processed Foods & Beverages + Livestock, Specialty Grains & Byproducts",0.35892228278767757,0.08429246604044516,6,4,0.2746298167472324,2
+2,Processed Foods & Beverages + Animal Feed & Agricultural Byproducts,0.3607696905856287,0.08670653050255307,6,4,0.27406316008307563,2
+2,Processed Foods & Beverages + Raw Commodity Crops & Primary Processing,0.3139518013778488,0.07447654621226424,5,4,0.23947525516558454,1
+2,Processed Foods & Beverages + Fresh Foods & Dairy Products,0.3723002257061058,0.07669376839975506,4,5,0.29560645730635077,-1
+2,"Livestock, Specialty Grains & Byproducts + Animal Feed & Agricultural Byproducts",0.3934306660879886,0.14294548413984817,7,5,0.2504851819481404,2
+2,"Livestock, Specialty Grains & Byproducts + Raw Commodity Crops & Primary Processing",0.257078425365566,0.08646903602160466,5,4,0.17060938934396136,1
+2,"Livestock, Specialty Grains & Byproducts + Fresh Foods & Dairy Products",0.4004867154053835,0.1016309915251878,3,5,0.2988557238801957,-2
+2,Animal Feed & Agricultural Byproducts + Raw Commodity Crops & Primary Processing,0.256563018604366,0.08828979225177322,5,4,0.16827322635259276,1
+2,Animal Feed & Agricultural Byproducts + Fresh Foods & Dairy Products,0.40689245925406525,0.1024494420410853,4,5,0.30444301721297995,-1
+2,Raw Commodity Crops & Primary Processing + Fresh Foods & Dairy Products,0.3292565307959314,0.07721585879888578,4,5,0.25204067199704566,-1
+3,"Processed Foods & Beverages + Livestock, Specialty Grains & Byproducts + Animal Feed & Agricultural Byproducts",0.3588991370768977,0.08388109301568858,6,4,0.2750180440612091,2
+3,"Processed Foods & Beverages + Livestock, Specialty Grains & Byproducts + Raw Commodity Crops & Primary Processing",0.3143374859651404,0.07464189964400628,5,4,0.2396955863211341,1
+3,"Processed Foods & Beverages + Livestock, Specialty Grains & Byproducts + Fresh Foods & Dairy Products",0.36972688019160566,0.07781519927769204,5,4,0.2919116809139136,1
+3,Processed Foods & Beverages + Animal Feed & Agricultural Byproducts + Raw Commodity Crops & Primary Processing,0.31267795752262795,0.07437043022713216,5,4,0.23830752729549579,1
+3,Processed Foods & Beverages + Animal Feed & Agricultural Byproducts + Fresh Foods & Dairy Products,0.37341285560238924,0.07762975941933126,4,5,0.295783096183058,-1
+3,Processed Foods & Beverages + Raw Commodity Crops & Primary Processing + Fresh Foods & Dairy Products,0.3428324760301505,0.06813730601022969,4,4,0.27469517001992083,0
+3,"Livestock, Specialty Grains & Byproducts + Animal Feed & Agricultural Byproducts + Raw Commodity Crops & Primary Processing",0.27271204315826375,0.08565036171932433,4,5,0.18706168143893942,-1
+3,"Livestock, Specialty Grains & Byproducts + Animal Feed & Agricultural Byproducts + Fresh Foods & Dairy Products",0.4001013800549073,0.09934538312202795,4,6,0.30075599693287935,-2
+3,"Livestock, Specialty Grains & Byproducts + Raw Commodity Crops & Primary Processing + Fresh Foods & Dairy Products",0.33121037429155686,0.0786675691811993,4,5,0.25254280511035754,-1
+3,Animal Feed & Agricultural Byproducts + Raw Commodity Crops & Primary Processing + Fresh Foods & Dairy Products,0.32971543713538914,0.07681821141436301,4,5,0.25289722572102613,-1
+4,"Processed Foods & Beverages + Livestock, Specialty Grains & Byproducts + Animal Feed & Agricultural Byproducts + Raw Commodity Crops & Primary Processing",0.31777991606840045,0.0731655079208482,6,4,0.24461440814755225,2
+4,"Processed Foods & Beverages + Livestock, Specialty Grains & Byproducts + Animal Feed & Agricultural Byproducts + Fresh Foods & Dairy Products",0.37009693970019536,0.07859165276655698,4,4,0.29150528693363836,0
+4,"Processed Foods & Beverages + Livestock, Specialty Grains & Byproducts + Raw Commodity Crops & Primary Processing + Fresh Foods & Dairy Products",0.3387280277458541,0.06714690995177525,3,5,0.27158111779407884,-2
+4,Processed Foods & Beverages + Animal Feed & Agricultural Byproducts + Raw Commodity Crops & Primary Processing + Fresh Foods & Dairy Products,0.34015350949398016,0.06828873641236402,4,5,0.27186477308161616,-1
+4,"Livestock, Specialty Grains & Byproducts + Animal Feed & Agricultural Byproducts + Raw Commodity Crops & Primary Processing + Fresh Foods & Dairy Products",0.33092706991493925,0.07706022846111979,4,5,0.25386684145381944,-1
+5,All Categories,0.3250156385069831,0.06828089414452626,3,3,0.25673474436245686,0
